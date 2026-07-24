@@ -13,3 +13,8 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 
 [tool.pytest.ini_options]
 addopts = "-ra"
+filterwarnings = [
+    # We use session.execute() deliberately for raw SQL (setval, delete, text);
+    # SQLModel's nudge toward .exec() is a false positive there.
+    "ignore:.*want to use `session.exec\\(\\)`.*:DeprecationWarning",
+]

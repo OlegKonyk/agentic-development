@@ -171,7 +171,13 @@ class ApiClient:
             self.delete_task(task["id"])
 
     def seed(self) -> list[dict[str, Any]]:
-        """Create the fixed seed tasks via the API; returns the created tasks."""
+        """Create the fixed seed tasks via the API; returns the created tasks.
+
+        Tasks are owned by the logged-in user; logs in as alice if the client
+        holds no token (so a fresh client seeds alice's board rather than 401ing).
+        """
+        if self._token is None:
+            self.login(*alice_credentials())
         created: list[dict[str, Any]] = []
         for spec in SEED_TASKS:
             task = self.create_task(spec["title"], spec["description"])

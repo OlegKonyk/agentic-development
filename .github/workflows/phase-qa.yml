@@ -132,7 +132,10 @@ jobs:
           cp -r reports context/reports
 
       - name: Reset and seed for the agent session
-        run: uv run python -c "from qa_helpers.client import ApiClient; c = ApiClient(); c.reset(); c.seed()"
+        # Re-seed via the app's own module (inside the api container) so the
+        # agent starts from the exact canonical dataset the stack boots with —
+        # alice + bob, fixed ids/timestamps. Runs DB-direct, no auth needed.
+        run: docker compose exec -T api uv run --frozen --no-dev --package taskboard-api python -m app.seed
 
       - name: Tier 2 — QA agent
         id: agent
