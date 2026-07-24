@@ -82,3 +82,13 @@ the deterministic gate caught by parking `needs-human` instead of guessing:
   needs-human rule meant a badly-sandboxed agent never produced a false pass.
 - Instrument for this: per-run `permission_denials` count belongs in the phase
   summary (a high count is the tell) — a candidate pipeline improvement.
+
+### Resolved — cycle 4: qa-passed (67 turns, $2.03)
+
+Broad-Bash fix worked. The agent verified all 9 ACs with strong evidence:
+drove WireMock 500-injection + Toxiproxy db-latency (with fault removal and
+recovery asserts), signed/duplicated webhooks for idempotency, auth matrix in
+both curl and browser, cross-user isolation, and audited docs/apps.md against
+the running app. This is the reality-grade agentic QA the project set out to
+demonstrate. Net: 4 cycles, each failure a distinct real issue the gate caught;
+zero false passes; the deterministic layer never wavered.
