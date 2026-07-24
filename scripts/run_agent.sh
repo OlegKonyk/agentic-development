@@ -42,11 +42,19 @@ case "$PHASE" in
     TOOLS="Read,Glob,Grep,Edit,Write,Bash(uv run *),Bash(uv sync *),Bash(git add *),Bash(git commit *),Bash(git status),Bash(git diff *),Bash(git log *),Bash(mkdir *)"
     ;;
   qa)
-    MODEL="${QA_MODEL:-sonnet}"; MAX_TURNS="${QA_MAX_TURNS:-100}"; MAX_BUDGET="${QA_BUDGET:-8}"
+    MODEL="${QA_MODEL:-sonnet}"; MAX_TURNS="${QA_MAX_TURNS:-80}"; MAX_BUDGET="${QA_BUDGET:-8}"
     SCHEMA="qa-verdict.json"
-    TOOLS="Read,Glob,Grep,Bash(curl *),Bash(uv run pytest *),mcp__playwright__*"
+    # Broad Bash, guarded by the deny-list in ci-settings.json (no push/merge/
+    # deploy/rm -rf/sudo, no edits to pipeline files) on a secret-less runner off
+    # the main branch. Arg-scoped patterns like `Bash(curl *)` auto-denied every
+    # multi-line/var-assignment/piped command the agent naturally writes — it
+    # burned 100 turns fighting the sandbox instead of testing (PR #10 cycles 2-3).
+    TOOLS="Read,Glob,Grep,Bash,mcp__playwright__*"
     MCP_CONFIG="$CC/mcp/qa.json"
-    DISALLOWED="mcp__playwright__browser_run_code_unsafe"
+    # QA observes and reports; it must not mutate the repo or the ticket (the
+    # deterministic workflow steps own commits and comments). git commit stays
+    # allowed globally for the dev phase, so scope these denials to QA here.
+    DISALLOWED="mcp__playwright__browser_run_code_unsafe,Bash(git commit *),Bash(git add *),Bash(gh pr comment *),Bash(gh issue comment *),Bash(gh pr edit *),Bash(gh issue edit *)"
     ;;
   *)
     echo "unknown phase: $PHASE" >&2; exit 1 ;;
