@@ -10,6 +10,9 @@ gh api "repos/${REPO}/rulesets" --method POST --input - <<'JSON'
   "name": "main-protection",
   "target": "branch",
   "enforcement": "active",
+  "bypass_actors": [
+    { "actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "always" }
+  ],
   "conditions": { "ref_name": { "include": ["~DEFAULT_BRANCH"], "exclude": [] } },
   "rules": [
     { "type": "deletion" },
