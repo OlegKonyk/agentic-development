@@ -114,3 +114,24 @@ What makes this the thesis-proving finding:
 Also observed: qa-failed auto-triggered rework, whose loop-guard (3) tripped →
 needs-human. Guard caps need to distinguish config-iteration cycles from true
 rework cycles — raised phase-qa's to 6 earlier; rework's stays tight on purpose.
+
+## 2026-07-24 — Cycles 6-7: the QA↔fix hardening loop converges; PR #10 shipped
+
+Cycle 6 (agent + Schemathesis, both real): (a) my cycle-5 ping fix used a 1s
+bound that broke the *documented* 500ms-latency degraded-but-functional
+scenario, and the failure was mislabeled as the 8s request deadline — the agent
+flagged the on-call-debugging hazard specifically; (b) a lone UTF-16 surrogate
+in a password (valid JSON!) crashed argon2 into an unauthenticated 500.
+Fixes: ping budget joined the designed timeout set (500ms wire << 3s ping < 8s
+deadline); validation exhaustion → honest 503; login rejects un-encodable
+passwords as 401. Both became regression tests. Cycle 7: qa-passed, CLEAN,
+merged. Deploy closed issue #3 (stage:done + deployed).
+
+**Meta-lesson — this IS the product working.** Across 7 QA cycles the agent
+found 3 real defects (stale-pool 500, latency-tolerance regression, surrogate
+500) that 131 deterministic tests AND human review both missed; each was caught
+by exploratory chaos/fuzz charters, each carried a clean repro, each hardened
+the app (not the tests) before merge. The deterministic gate never emitted a
+false pass. That is the thesis: predictable orchestration + agent-filled
+content + evidence-gated merge = a QA loop that iteratively hardens a
+reality-grade system. Timeout budgets are a designed SET, re-derived twice here.
