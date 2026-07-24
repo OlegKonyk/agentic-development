@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# Data / artifacts
+data/
+*.db
+test-results/
+agent-artifacts/
+reports/
+playwright-report/
+
+# Node
+node_modules/
+.wrangler/
+.dev.vars
+.dev.vars.*
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/
+
+# Local-only Claude state (repo-versioned config lives in ci/claude and .claude)
+.claude/settings.local.json
