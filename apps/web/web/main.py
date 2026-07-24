@@ -20,6 +20,10 @@ NEXT_STATUS = {"todo": "doing", "doing": "done", "done": "done"}
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 
+API_UNAVAILABLE_MESSAGE = "The task API is unavailable. Please try again shortly."
+INVALID_TITLE_MESSAGE = "Title must contain at least one non-whitespace character."
+INVALID_INPUT_MESSAGE = "Please check the task details and try again."
+
 
 class AuthRedirect(Exception):
     """Raised when a protected page is hit without a session token."""
@@ -45,6 +49,13 @@ def to_rfc3339_z(value: str) -> str:
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=UTC)
     return dt.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def title_rejected(detail: object) -> bool:
+    """True when a FastAPI validation `detail` rejects the `title` field."""
+    if not isinstance(detail, list):
+        return False
+    return any(isinstance(item, dict) and "title" in (item.get("loc") or []) for item in detail)
 
 
 def create_app() -> FastAPI:
@@ -193,13 +204,25 @@ def create_app() -> FastAPI:
         token = require_token(request)
         payload: dict[str, str] = {"title": title, "description": description}
         api_error = False
+        error_message = API_UNAVAILABLE_MESSAGE
         try:
             if due_at.strip():
                 payload["due_at"] = to_rfc3339_z(due_at.strip())
             resp = await api(request).post("/api/tasks", json=payload, headers=bearer(token))
             if resp.status_code == 401:
                 raise SessionExpired
-            resp.raise_for_status()
+            if resp.status_code == 422:
+                api_error = True
+                body: dict = {}
+                with suppress(ValueError):
+                    body = resp.json()
+                error_message = (
+                    INVALID_TITLE_MESSAGE
+                    if title_rejected(body.get("detail"))
+                    else INVALID_INPUT_MESSAGE
+                )
+            else:
+                resp.raise_for_status()
         except (httpx.HTTPError, ValueError):
             api_error = True
         if api_error:
@@ -208,6 +231,7 @@ def create_app() -> FastAPI:
                 "new.html",
                 {
                     "api_error": True,
+                    "error_message": error_message,
                     "authed": True,
                     "csrf": ensure_csrf(request),
                     "title": title,

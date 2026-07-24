@@ -10,7 +10,16 @@ from sqlmodel import Field, SQLModel
 Status = Literal["todo", "doing", "done"]
 ReminderStatus = Literal["none", "pending", "sent", "failed"]
 
-Title = Annotated[str, PydanticField(min_length=1, max_length=200)]
+
+def _require_non_blank(value: str) -> str:
+    if not value.strip():
+        raise ValueError("title must contain a non-whitespace character")
+    return value
+
+
+Title = Annotated[
+    str, PydanticField(min_length=1, max_length=200), AfterValidator(_require_non_blank)
+]
 
 
 def _utcnow() -> datetime:

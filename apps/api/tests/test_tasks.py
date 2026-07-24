@@ -87,8 +87,56 @@ async def test_create_title_boundaries(client: AsyncClient, alice_headers: dict)
     assert too_long.status_code == 422
     empty = await client.post("/api/tasks", json={"title": ""}, headers=alice_headers)
     assert empty.status_code == 422
+    blank = await client.post("/api/tasks", json={"title": " "}, headers=alice_headers)
+    assert blank.status_code == 422
     missing = await client.post("/api/tasks", json={"description": "x"}, headers=alice_headers)
     assert missing.status_code == 422
+
+
+@pytest.mark.parametrize("title", [" ", "\t", "\n", "   ", " "])
+async def test_create_whitespace_only_title_422(
+    client: AsyncClient, alice_headers: dict, title: str
+) -> None:
+    resp = await client.post("/api/tasks", json={"title": title}, headers=alice_headers)
+    assert resp.status_code == 422
+    listed = await client.get("/api/tasks", headers=alice_headers)
+    assert listed.json() == []
+
+
+async def test_blank_title_422_names_title_field(client: AsyncClient, alice_headers: dict) -> None:
+    resp = await client.post("/api/tasks", json={"title": " "}, headers=alice_headers)
+    assert resp.status_code == 422
+    detail = resp.json()["detail"]
+    assert detail[0]["loc"] == ["body", "title"]
+    assert detail[0]["type"] == "value_error"
+
+
+async def test_create_padded_title_stored_verbatim(
+    client: AsyncClient, alice_headers: dict
+) -> None:
+    task = await create(client, alice_headers, title="  Buy milk  ")
+    assert task["title"] == "  Buy milk  "
+
+
+async def test_patch_whitespace_only_title_422(client: AsyncClient, alice_headers: dict) -> None:
+    task = await create(client, alice_headers, title="keep me", description="keep too")
+    resp = await client.patch(
+        f"/api/tasks/{task['id']}", json={"title": " "}, headers=alice_headers
+    )
+    assert resp.status_code == 422
+    fetched = await client.get(f"/api/tasks/{task['id']}", headers=alice_headers)
+    assert fetched.json()["title"] == "keep me"
+    assert fetched.json()["description"] == "keep too"
+    assert fetched.json()["status"] == "todo"
+
+
+async def test_patch_null_title_is_noop(client: AsyncClient, alice_headers: dict) -> None:
+    task = await create(client, alice_headers, title="unchanged")
+    resp = await client.patch(
+        f"/api/tasks/{task['id']}", json={"title": None}, headers=alice_headers
+    )
+    assert resp.status_code == 200
+    assert resp.json()["title"] == "unchanged"
 
 
 async def test_list_tasks_and_status_filter(client: AsyncClient, alice_headers: dict) -> None:
