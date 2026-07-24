@@ -102,6 +102,16 @@ jobs:
           --output=test-results
           --reruns 1 --only-rerun 'TimeoutError|TargetClosedError'
 
+      - name: Tier 1 — webhook security
+        id: webhooks
+        continue-on-error: true
+        run: uv run pytest qa/tests/webhooks -q --junitxml=reports/webhooks.xml
+
+      - name: Tier 1 — resilience (vendor faults + chaos)
+        id: resilience
+        continue-on-error: true
+        run: uv run pytest qa/tests/resilience -q --junitxml=reports/resilience.xml
+
       - name: Gather agent context
         run: |
           gh pr view "$PR_NUMBER" --json number,title,body,files > context/pr.json
@@ -116,6 +126,8 @@ jobs:
             echo "unit=${{ steps.unit.outcome }}"
             echo "contract=${{ steps.contract.outcome }}"
             echo "e2e=${{ steps.e2e.outcome }}"
+            echo "webhooks=${{ steps.webhooks.outcome }}"
+            echo "resilience=${{ steps.resilience.outcome }}"
           } > context/tier1.txt
           cp -r reports context/reports
 
@@ -135,7 +147,9 @@ jobs:
         id: gate
         run: >
           python3 scripts/qa_gate.py
-          --tier1 unit=${{ steps.unit.outcome }} contract=${{ steps.contract.outcome }} e2e=${{ steps.e2e.outcome }}
+          --tier1 unit=${{ steps.unit.outcome }} contract=${{ steps.contract.outcome }}
+          e2e=${{ steps.e2e.outcome }} webhooks=${{ steps.webhooks.outcome }}
+          resilience=${{ steps.resilience.outcome }}
           --result agent-out/qa-result.json
           --output agent-out/qa-output.json
           --comment agent-out/qa-comment.md

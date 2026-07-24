@@ -1,13 +1,39 @@
+# v2 reality-grade platform topology (docs/apps.md). Self-initializing:
+# `docker compose up -d --wait` converges from cold — migrate + seed run as
+# one-shot services before the api starts. Gateway (wrangler) runs on the host.
+
+x-api-build: &api-build
+  context: .
+  dockerfile: apps/api/Dockerfile
+
+# api/worker traffic goes through toxiproxy (db :5433, vendor :8666) so the
+# resilience suite can inject faults. One-shot migrate/seed talk to db directly.
+x-api-env: &api-env
+  DATABASE_URL: postgresql+asyncpg://taskboard:taskboard@toxiproxy:5433/taskboard
+  REDIS_URL: redis://redis:6379/0
+  VENDOR_URL: http://toxiproxy:8666
+  VENDOR_API_KEY: vendor-key
+  VENDOR_WEBHOOK_SECRET: whsec_test
+  APP_ENV: test
+  QA_ALICE_PASS: ${QA_ALICE_PASS:-correct-horse-a}
+  QA_BOB_PASS: ${QA_BOB_PASS:-correct-horse-b}
+
 services:
   api:
-    build:
-      context: .
-      dockerfile: apps/api/Dockerfile
+    build: *api-build
+    image: taskboard-api
     ports:
       - "8000:8000"
-    environment:
-      APP_ENV: test
-      DATA_DIR: /data
+    environment: *api-env
+    depends_on:
+      seed:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      toxiproxy:
+        condition: service_healthy
+      vendor-mock:
+        condition: service_healthy
     healthcheck:
       test:
         - CMD
@@ -26,6 +52,7 @@ services:
       - "8001:8001"
     environment:
       API_BASE_URL: http://api:8000
+      SECRET_KEY: dev-session-secret
     depends_on:
       api:
         condition: service_healthy
@@ -35,6 +62,123 @@ services:
         - python
         - -c
         - "import urllib.request; urllib.request.urlopen('http://localhost:8001/healthz')"
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  worker:
+    build: *api-build
+    image: taskboard-api
+    command: uv run --frozen --no-dev --package taskboard-api taskiq worker app.tkq:broker
+    environment: *api-env
+    # Waits for seed (schema + users exist) and toxiproxy (its DB/vendor routes
+    # go through the proxy listeners) so cold boot can't race migrations.
+    depends_on:
+      seed:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      toxiproxy:
+        condition: service_healthy
+      vendor-mock:
+        condition: service_healthy
+
+  scheduler:
+    build: *api-build
+    image: taskboard-api
+    command: uv run --frozen --no-dev --package taskboard-api taskiq scheduler app.tkq:scheduler
+    environment: *api-env
+    depends_on:
+      seed:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      toxiproxy:
+        condition: service_healthy
+
+  migrate:
+    build: *api-build
+    image: taskboard-api
+    command: uv run --frozen --no-dev --package taskboard-api alembic -c apps/api/alembic.ini upgrade head
+    restart: "no"
+    environment:
+      <<: *api-env
+      DATABASE_URL: postgresql+asyncpg://taskboard:taskboard@db:5432/taskboard
+    depends_on:
+      db:
+        condition: service_healthy
+
+  seed:
+    build: *api-build
+    image: taskboard-api
+    command: uv run --frozen --no-dev --package taskboard-api python -m app.seed
+    restart: "no"
+    environment:
+      <<: *api-env
+      DATABASE_URL: postgresql+asyncpg://taskboard:taskboard@db:5432/taskboard
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  db:
+    image: postgres:17-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: taskboard
+      POSTGRES_PASSWORD: taskboard
+      POSTGRES_DB: taskboard
+    # CI/test profile: throwaway data on tmpfs, durability off for speed.
+    command: -c fsync=off -c synchronous_commit=off -c full_page_writes=off
+    tmpfs:
+      - /var/lib/postgresql/data
+    volumes:
+      # Creates the taskboard_test DB used by the fast unit/integration tests.
+      - ./scripts/pg-init-test-db.sh:/docker-entrypoint-initdb.d/10-test-db.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U taskboard -d taskboard"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  vendor-mock:
+    # Standard (non-alpine) tag: multi-arch incl. arm64; alpine is amd64-only.
+    image: wiremock/wiremock:3.13.2
+    command: ["--global-response-templating", "--disable-banner"]
+    ports:
+      - "8081:8080"
+    volumes:
+      - ./vendor-mock/mappings:/home/wiremock/mappings:ro
+    # wget is present in the image; curl is not.
+    healthcheck:
+      # --spider (HEAD) fails: the admin health endpoint only answers GET.
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8080/__admin/health"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  toxiproxy:
+    image: ghcr.io/shopify/toxiproxy:2.12.0
+    # Image entrypoint is ["/toxiproxy"]; args replace the default CMD.
+    command: ["-config", "/config.json", "-host", "0.0.0.0"]
+    ports:
+      - "8474:8474"
+    volumes:
+      - ./toxiproxy/config.json:/config.json:ro
+    # Scratch image: no shell/curl/wget, but /toxiproxy-cli is bundled and
+    # talks to the admin API on localhost:8474 (exec form needs no shell).
+    healthcheck:
+      test: ["CMD", "/toxiproxy-cli", "list"]
       interval: 2s
       timeout: 5s
       retries: 30

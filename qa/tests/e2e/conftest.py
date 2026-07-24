@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import os
 from collections.abc import Iterator
-from typing import Any
 
 import pytest
-from qa_helpers import ApiClient
+from playwright.sync_api import Browser, Page, expect
+from qa_helpers import alice_credentials, bob_credentials
 
 DEFAULT_GATEWAY_URL = "http://localhost:8787"
 
@@ -17,20 +17,57 @@ def base_url(request: pytest.FixtureRequest) -> str:
     return (cli or os.environ.get("GATEWAY_URL", DEFAULT_GATEWAY_URL)).rstrip("/")
 
 
-@pytest.fixture(scope="session")
-def gateway_url(base_url: str) -> str:
-    return base_url
+def _login_storage_state(
+    browser: Browser, base_url: str, email: str, password: str, path: str
+) -> str:
+    """Log in through the REAL /login form once; persist cookies as storage state."""
+    context = browser.new_context(base_url=base_url)
+    try:
+        page = context.new_page()
+        page.goto("/login")
+        page.get_by_test_id("email-input").fill(email)
+        page.get_by_test_id("password-input").fill(password)
+        page.get_by_test_id("submit-login").click()
+        expect(page.get_by_test_id("user-email")).to_contain_text(email)
+        context.storage_state(path=path)
+    finally:
+        context.close()
+    return path
 
 
 @pytest.fixture(scope="session")
-def api() -> Iterator[ApiClient]:
-    client = ApiClient()
-    yield client
-    client.close()
+def alice_storage_state(
+    browser: Browser,
+    base_url: str,
+    tmp_path_factory: pytest.TempPathFactory,
+    _fresh_platform: None,
+) -> str:
+    email, password = alice_credentials()
+    path = tmp_path_factory.mktemp("auth-state") / "alice.json"
+    return _login_storage_state(browser, base_url, email, password, str(path))
 
 
-@pytest.fixture(autouse=True)
-def seeded(api: ApiClient) -> list[dict[str, Any]]:
-    """Every test starts from the fixed seed dataset."""
-    api.reset()
-    return api.seed()
+@pytest.fixture(scope="session")
+def bob_storage_state(
+    browser: Browser,
+    base_url: str,
+    tmp_path_factory: pytest.TempPathFactory,
+    _fresh_platform: None,
+) -> str:
+    email, password = bob_credentials()
+    path = tmp_path_factory.mktemp("auth-state") / "bob.json"
+    return _login_storage_state(browser, base_url, email, password, str(path))
+
+
+@pytest.fixture
+def alice_page(browser: Browser, base_url: str, alice_storage_state: str) -> Iterator[Page]:
+    context = browser.new_context(base_url=base_url, storage_state=alice_storage_state)
+    yield context.new_page()
+    context.close()
+
+
+@pytest.fixture
+def bob_page(browser: Browser, base_url: str, bob_storage_state: str) -> Iterator[Page]:
+    context = browser.new_context(base_url=base_url, storage_state=bob_storage_state)
+    yield context.new_page()
+    context.close()

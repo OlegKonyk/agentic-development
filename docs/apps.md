@@ -14,7 +14,7 @@ async reminder jobs, a programmable vendor, signed webhooks, and a chaos layer.
 | `scheduler` | api image, `taskiq scheduler app.tkq:scheduler` | — | process |
 | `db` | postgres:17-alpine | 5432 | `pg_isready` |
 | `redis` | redis:7-alpine | 6379 | `redis-cli ping` |
-| `vendor-mock` | wiremock/wiremock:3.13.2-alpine | 8081→8080 | `GET /__admin/health` |
+| `vendor-mock` | wiremock/wiremock:3.13.2 | 8081→8080 | `GET /__admin/health` |
 | `toxiproxy` | ghcr.io/shopify/toxiproxy:2.12.0 | 8474 (admin) | `GET /version` |
 | gateway | wrangler dev (host, not compose) | 8787 | `GET /gw/healthz` |
 
@@ -44,7 +44,9 @@ Tasks (require `Authorization: Bearer <token>`, else 401; scoped to owner;
 404 for other users' task ids — no existence leak): same CRUD surface as v1
 plus `due_at` (optional RFC3339, must be future on create/update else 422) and
 read-only `reminder_status`. All v1 contract fixes hold (RFC3339 `Z`
-timestamps, documented 400/404, TaskId ≤ 2^63-1, no nullable query params).
+timestamps, documented 400/404, no nullable query params); TaskId path bound is
+≤ 2^31-1, matching the INTEGER column (larger ids overflowed asyncpg → 500,
+found by contract fuzzing).
 
 Webhooks: `POST /api/webhooks/vendor` — Standard-Webhooks-style HMAC-SHA256 of
 `{webhook-id}.{webhook-timestamp}.{raw body}` using `VENDOR_WEBHOOK_SECRET`
@@ -65,7 +67,11 @@ idempotency_key}` with 2s timeout + 3 tenacity retries (injectable wait) →
 vendor later webhooks delivery → `sent`. Retries exhausted → `failed`.
 
 Config env: `DATABASE_URL`, `REDIS_URL`, `VENDOR_URL`, `VENDOR_API_KEY`
-(`vendor-key`), `VENDOR_WEBHOOK_SECRET`, `APP_ENV`, `SESSION_TTL_SECONDS=3600`.
+(`vendor-key`), `VENDOR_WEBHOOK_SECRET`, `APP_ENV`, `SESSION_TTL_SECONDS=3600`,
+`REQUEST_DEADLINE_MS=8000` (every request runs under an asyncio deadline →
+504 JSON on breach; the only timeout that bounds a stalled DB wire, since
+asyncpg's BEGIN bypasses `command_timeout`), `DB_COMMAND_TIMEOUT_MS=4000`,
+`DB_STATEMENT_TIMEOUT_MS=2000`.
 Migrations: `uv run --package taskboard-api alembic -c apps/api/alembic.ini upgrade head`.
 Seed (idempotent, fixed ids/timestamps): `uv run --package taskboard-api python -m app.seed`
 — 2 users, alice: 3 tasks (one due +2min), bob: 2 tasks.
@@ -117,8 +123,12 @@ asserts no toxics leak between tests.
 - `tests/contract/` — Schemathesis v4 against the API (auth'd via bearer
   override), bounded + deterministic as v1.
 - `tests/resilience/` — vendor faults via WireMock admin (5xx → reminder
-  `failed`, recovery → `sent`) and Toxiproxy matrix (db latency, db stall vs
-  1-2s statement timeout, vendor reset_peer vs retries) with recovery asserts.
+  `failed`, recovery after reset) and Toxiproxy matrix: db latency 500ms →
+  still 200 (degraded-but-functional stays under the 8s request deadline);
+  db stall (timeout=0) → 5xx JSON by the deadline, never a hang; vendor
+  reset_peer → reminder `failed` after retries. The `toxiproxy` fixture's
+  teardown removes toxics AND asserts recovery (login succeeds again) so
+  poisoned connection pools never bleed into the next test.
 - `tests/webhooks/` — signature matrix: valid, tampered body → 401, stale
   timestamp → 400, duplicate id → single side effect; helper
   `qa_helpers.webhooks.sign(payload, secret, ts)`.

@@ -1,0 +1,17 @@
+{
+  "name": "catch-all: unknown route",
+  "priority": 99,
+  "request": {
+    "method": "ANY",
+    "urlPattern": ".*"
+  },
+  "response": {
+    "status": 404,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "jsonBody": {
+      "error": "not found"
+    }
+  }
+}

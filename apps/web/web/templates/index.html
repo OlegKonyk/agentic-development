@@ -9,11 +9,19 @@
     <div class="task" data-testid="task-row" data-task-id="{{ task.id }}">
       <div class="title" data-testid="task-title">{{ task.title }}</div>
       <div class="status" data-testid="task-status">{{ task.status }}</div>
+      {% if task.due_at %}
+      <div class="due" data-testid="due-at">{{ task.due_at }}</div>
+      {% endif %}
+      {% if task.reminder_status and task.reminder_status != "none" %}
+      <span class="badge" data-testid="reminder-badge">{{ task.reminder_status }}</span>
+      {% endif %}
       <div class="actions">
         <form method="post" action="/tasks/{{ task.id }}/advance">
+          <input type="hidden" name="csrf_token" value="{{ csrf }}">
           <button type="submit" class="btn-advance" data-testid="advance-btn">Advance</button>
         </form>
         <form method="post" action="/tasks/{{ task.id }}/delete">
+          <input type="hidden" name="csrf_token" value="{{ csrf }}">
           <button type="submit" class="btn-delete" data-testid="delete-btn">Delete</button>
         </form>
       </div>

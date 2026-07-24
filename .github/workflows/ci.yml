@@ -33,6 +33,9 @@ jobs:
       - name: State-machine lint
         run: python3 scripts/state_lint.py
 
+      - name: Boot test database
+        run: docker compose up -d --wait --wait-timeout 60 db redis
+
       - name: Unit & integration tests
         run: uv run pytest apps/api apps/web -q --junitxml=reports/unit.xml
 

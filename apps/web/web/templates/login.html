@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Log in — Taskboard{% endblock %}
+{% block content %}
+<h2>Log in</h2>
+{% if error %}
+<div class="banner-error" data-testid="login-error">
+  Invalid email or password.
+</div>
+{% endif %}
+<form class="stacked" method="post" action="/login">
+  <input type="hidden" name="csrf_token" value="{{ csrf }}">
+  <input type="hidden" name="next" value="{{ next }}">
+  <label for="email">Email</label>
+  <input id="email" name="email" type="email" required
+         data-testid="email-input" autocomplete="username">
+  <label for="password">Password</label>
+  <input id="password" name="password" type="password" required
+         data-testid="password-input" autocomplete="current-password">
+  <p><button type="submit" class="btn-primary" data-testid="submit-login">Log in</button></p>
+</form>
+{% endblock %}

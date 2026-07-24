@@ -1,0 +1,14 @@
+[
+  {
+    "name": "db",
+    "listen": "0.0.0.0:5433",
+    "upstream": "db:5432",
+    "enabled": true
+  },
+  {
+    "name": "vendor",
+    "listen": "0.0.0.0:8666",
+    "upstream": "vendor-mock:8080",
+    "enabled": true
+  }
+]
