@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from typing import Annotated
 
 from fastapi import APIRouter, FastAPI, HTTPException, Path, Query
+from fastapi.responses import JSONResponse
 from pydantic.json_schema import SkipJsonSchema
 from sqlalchemy import delete
 from sqlmodel import col, select
@@ -171,6 +172,10 @@ def create_app() -> FastAPI:
         RequestDeadlineMiddleware,
         timeout_s=int(os.environ.get("REQUEST_DEADLINE_MS", "8000")) / 1000,
     )
+
+    @application.exception_handler(db.DatabaseUnavailableError)
+    async def on_db_unavailable(request: object, exc: db.DatabaseUnavailableError) -> JSONResponse:
+        return JSONResponse(status_code=503, content={"detail": "database unavailable"})
 
     @application.get("/healthz")
     def healthz() -> dict[str, str]:

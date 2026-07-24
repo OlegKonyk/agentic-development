@@ -71,7 +71,9 @@ Config env: `DATABASE_URL`, `REDIS_URL`, `VENDOR_URL`, `VENDOR_API_KEY`
 `REQUEST_DEADLINE_MS=8000` (every request runs under an asyncio deadline →
 504 JSON on breach; the only timeout that bounds a stalled DB wire, since
 asyncpg's BEGIN bypasses `command_timeout`), `DB_COMMAND_TIMEOUT_MS=4000`,
-`DB_STATEMENT_TIMEOUT_MS=2000`.
+`DB_STATEMENT_TIMEOUT_MS=2000`, `DB_PING_TIMEOUT_MS=3000` (bounded pre-use
+connection ping healing stale pooled connections; exhausted validation →
+503 `database unavailable`, distinct from the 504 deadline).
 Migrations: `uv run --package taskboard-api alembic -c apps/api/alembic.ini upgrade head`.
 Seed (idempotent, fixed ids/timestamps): `uv run --package taskboard-api python -m app.seed`
 — 2 users, alice: 3 tasks (one due +2min), bob: 2 tasks.

@@ -65,6 +65,14 @@ async def session_scope() -> AsyncIterator[AsyncSession]:
         yield session
 
 
+class DatabaseUnavailableError(Exception):
+    """Connection validation failed twice — the DB is unreachable or stalled.
+
+    Distinct type so the API layer answers 503 'database unavailable' instead
+    of the outer deadline middleware mislabeling an internal ping timeout as
+    the request deadline (agent-QA finding, PR #10 cycle 6)."""
+
+
 async def _validate(session: AsyncSession) -> None:
     """Bounded pre-use ping that transparently heals stale pooled connections.
 
@@ -74,8 +82,13 @@ async def _validate(session: AsyncSession) -> None:
     Bounded by asyncio.timeout so a stalled wire cannot hang the ping the way
     it hangs the dialect-level pool_pre_ping (found by agent QA on PR #10:
     first live request after a cleared DB stall got a raw 500).
+
+    The ping bound sits in the designed timeout set: per-hop wire latency
+    (tolerated: 500ms) << ping bound (covers a cold checkout ≈ several round
+    trips) < request deadline (8s). A 1s bound broke the documented 500ms-
+    latency degraded-but-functional scenario (agent-QA finding, cycle 6).
     """
-    ping_timeout_s = float(os.environ.get("DB_PING_TIMEOUT_MS", "1000")) / 1000
+    ping_timeout_s = float(os.environ.get("DB_PING_TIMEOUT_MS", "3000")) / 1000
     for attempt in (1, 2):
         try:
             async with asyncio.timeout(ping_timeout_s):
@@ -85,7 +98,7 @@ async def _validate(session: AsyncSession) -> None:
             with suppress(Exception):
                 await asyncio.wait_for(session.rollback(), ping_timeout_s)
             if attempt == 2:
-                raise
+                raise DatabaseUnavailableError from None
 
 
 async def get_session() -> AsyncIterator[AsyncSession]:

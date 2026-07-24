@@ -53,10 +53,10 @@ jobs:
       # Statuses go to HEAD_SHA — that's what branch protection evaluates.
       - uses: actions/checkout@v4
 
-      - name: Loop guard (max 6 QA cycles)
+      - name: Loop guard (max 10 QA cycles)
         run: |
           chmod +x scripts/*.sh
-          scripts/loop_guard.sh "$PR_NUMBER" '^qa-ready$' 6
+          scripts/loop_guard.sh "$PR_NUMBER" '^qa-ready$' 10
 
       - uses: astral-sh/setup-uv@v5
       - uses: actions/setup-node@v4

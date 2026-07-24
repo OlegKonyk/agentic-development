@@ -88,3 +88,17 @@ async def test_sessions_are_independent(client: AsyncClient) -> None:
     second = await login(client)
     await client.post("/api/auth/logout", headers=bearer(first))
     assert (await client.get("/api/auth/me", headers=bearer(second))).status_code == 200
+
+
+async def test_login_lone_surrogate_password_is_401_not_500(client: AsyncClient) -> None:
+    """Regression (agent QA + Schemathesis, PR #10 cycle 6): a lone UTF-16
+    surrogate is valid JSON but cannot UTF-8-encode; it must read as invalid
+    credentials, not crash argon2 into an unauthenticated 500."""
+    body = '{"email": "alice@example.com", "password": "\\ud800"}'
+    resp = await client.post(
+        "/api/auth/login",
+        content=body.encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+    )
+    assert resp.status_code == 401
+    assert resp.json() == {"detail": "Invalid credentials"}

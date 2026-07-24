@@ -79,6 +79,13 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
     responses=UNAUTHORIZED | {400: {"description": "Malformed request body"}},
 )
 async def login(payload: LoginRequest, session: SessionDep) -> LoginResponse:
+    # A password that cannot UTF-8-encode (e.g. a lone surrogate — valid JSON!)
+    # can never match an argon2 hash; without this guard the encode error inside
+    # argon2 became an unauthenticated 500 (agent-QA + Schemathesis finding).
+    try:
+        payload.password.encode("utf-8")
+    except UnicodeEncodeError:
+        raise HTTPException(status_code=401, detail="Invalid credentials") from None
     user = (await session.exec(select(User).where(User.email == payload.email))).first()
     if user is None:
         # Burn a comparable amount of time so the response does not leak
