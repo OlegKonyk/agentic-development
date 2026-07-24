@@ -12,7 +12,7 @@ import httpx
 import pytest
 import respx
 from fastapi.testclient import TestClient
-from web.main import create_app, safe_next, to_rfc3339_z
+from web.main import create_app, safe_next, title_rejected, to_rfc3339_z
 
 API = "http://localhost:8000"
 TOKEN = "tok-alice-0001"
@@ -102,6 +102,15 @@ def test_safe_next_allows_relative_paths_only() -> None:
 def test_to_rfc3339_z_converts_datetime_local() -> None:
     assert to_rfc3339_z("2026-03-01T12:30") == "2026-03-01T12:30:00Z"
     assert to_rfc3339_z("2026-03-01T12:30:15+02:00") == "2026-03-01T10:30:15Z"
+
+
+def test_title_rejected_helper() -> None:
+    assert title_rejected([{"loc": ["body", "title"], "type": "value_error"}]) is True
+    assert title_rejected([{"loc": ["body", "due_at"], "type": "value_error"}]) is False
+    assert title_rejected(None) is False
+    assert title_rejected({}) is False
+    assert title_rejected("boom") is False
+    assert title_rejected([{}]) is False
 
 
 # --- auth gating -----------------------------------------------------------
@@ -306,6 +315,7 @@ def test_index_shows_error_banner_when_api_down(client: TestClient) -> None:
 
     assert resp.status_code == 200
     assert 'data-testid="api-error"' in resp.text
+    assert "The task API is unavailable. Please try again shortly." in resp.text
 
 
 # --- new task --------------------------------------------------------------
@@ -365,6 +375,69 @@ def test_new_task_due_at_converted_to_rfc3339_z(client: TestClient) -> None:
 
 
 @respx.mock
+def test_new_task_blank_title_shows_validation_banner_and_keeps_values(
+    client: TestClient,
+) -> None:
+    csrf = login(client)
+    respx.post(f"{API}/api/tasks").mock(
+        return_value=httpx.Response(
+            422,
+            json={"detail": [{"loc": ["body", "title"], "type": "value_error"}]},
+        )
+    )
+
+    resp = client.post(
+        "/new",
+        data={
+            "title": " ",
+            "description": "should survive",
+            "due_at": "2026-03-01T12:30",
+            "csrf_token": csrf,
+        },
+        follow_redirects=False,
+    )
+
+    assert resp.status_code == 200
+    assert 'data-testid="api-error"' in resp.text
+    assert "Title must contain at least one non-whitespace character." in resp.text
+    assert "should survive" in resp.text
+    assert "2026-03-01T12:30" in resp.text
+
+
+@respx.mock
+def test_new_task_other_422_shows_generic_message(client: TestClient) -> None:
+    csrf = login(client)
+    respx.post(f"{API}/api/tasks").mock(
+        return_value=httpx.Response(
+            422,
+            json={"detail": [{"loc": ["body", "due_at"], "type": "value_error"}]},
+        )
+    )
+
+    resp = client.post(
+        "/new", data={"title": "New one", "csrf_token": csrf}, follow_redirects=False
+    )
+
+    assert resp.status_code == 200
+    assert 'data-testid="api-error"' in resp.text
+    assert "Please check the task details and try again." in resp.text
+    assert "Title must contain at least one non-whitespace character." not in resp.text
+
+
+@respx.mock
+def test_new_task_422_with_unparseable_body_still_shows_banner(client: TestClient) -> None:
+    csrf = login(client)
+    respx.post(f"{API}/api/tasks").mock(return_value=httpx.Response(422, text="not json"))
+
+    resp = client.post(
+        "/new", data={"title": "New one", "csrf_token": csrf}, follow_redirects=False
+    )
+
+    assert resp.status_code == 200
+    assert 'data-testid="api-error"' in resp.text
+
+
+@respx.mock
 def test_new_task_csrf_mismatch_is_403(client: TestClient) -> None:
     login(client)
     route = respx.post(f"{API}/api/tasks").mock(return_value=httpx.Response(201, json=SEEDED[0]))
@@ -386,6 +459,7 @@ def test_new_task_api_down_renders_error_banner(client: TestClient) -> None:
 
     assert resp.status_code == 200
     assert 'data-testid="api-error"' in resp.text
+    assert "The task API is unavailable. Please try again shortly." in resp.text
 
 
 @respx.mock

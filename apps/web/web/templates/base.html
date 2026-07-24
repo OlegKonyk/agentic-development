@@ -65,7 +65,7 @@
   <main>
     {% if api_error %}
     <div class="banner-error" data-testid="api-error">
-      The task API is unavailable. Please try again shortly.
+      {{ error_message | default("The task API is unavailable. Please try again shortly.") }}
     </div>
     {% endif %}
     {% block content %}{% endblock %}
