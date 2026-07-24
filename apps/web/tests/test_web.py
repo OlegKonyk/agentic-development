@@ -71,12 +71,62 @@ def test_index_shows_error_banner_when_api_down(client: TestClient) -> None:
     assert 'data-testid="api-error"' in resp.text
 
 
+@respx.mock
+def test_index_shows_task_count(client: TestClient) -> None:
+    respx.get(f"{API}/api/tasks").mock(return_value=httpx.Response(200, json=SEEDED))
+
+    resp = client.get("/")
+
+    assert resp.status_code == 200
+    assert 'data-testid="task-count"' in resp.text
+    assert "Tasks: 3" in resp.text
+
+
+@respx.mock
+def test_index_task_count_zero_on_empty_board(client: TestClient) -> None:
+    respx.get(f"{API}/api/tasks").mock(return_value=httpx.Response(200, json=[]))
+
+    resp = client.get("/")
+
+    assert resp.status_code == 200
+    assert 'data-testid="task-count"' in resp.text
+    assert "Tasks: 0" in resp.text
+
+
+@respx.mock
+def test_index_hides_task_count_when_api_down(client: TestClient) -> None:
+    respx.get(f"{API}/api/tasks").mock(side_effect=httpx.ConnectError("refused"))
+
+    resp = client.get("/")
+
+    assert resp.status_code == 200
+    assert 'data-testid="api-error"' in resp.text
+    assert 'data-testid="task-count"' not in resp.text
+
+
+@respx.mock
+def test_task_count_element_is_in_header(client: TestClient) -> None:
+    respx.get(f"{API}/api/tasks").mock(return_value=httpx.Response(200, json=SEEDED))
+
+    resp = client.get("/")
+
+    body = resp.text
+    assert body.index('data-testid="task-count"') < body.index("</header>")
+
+
 def test_new_form_renders(client: TestClient) -> None:
     resp = client.get("/new")
 
     assert resp.status_code == 200
     for testid in ("title-input", "description-input", "submit-task"):
         assert f'data-testid="{testid}"' in resp.text
+
+
+def test_new_form_has_no_task_count(client: TestClient) -> None:
+    resp = client.get("/new")
+
+    assert resp.status_code == 200
+    assert 'data-testid="task-count"' not in resp.text
 
 
 @respx.mock
