@@ -68,6 +68,10 @@ jobs:
           uv sync --all-packages
           (cd gateway && npm ci)
           uv run playwright install --with-deps chromium
+          # The QA agent's Playwright MCP server runs on Node playwright, which
+          # needs its own matching browser build (the Python install above is a
+          # different revision cache entry).
+          npx -y playwright install chromium
 
       - name: Boot the stack
         run: |
