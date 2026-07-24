@@ -50,3 +50,35 @@ Template: **ticket / phase costs / verdict quality / gaps observed / changes mad
   another argument for the Actions-hosted execution model.
 - Verified: 131 tests / 5 suites green locally; PR #10 sent through agent QA
   with the updated /qa:qa-run skill (fault-injection APIs now documented tools).
+
+## 2026-07-24 — PR #10 QA cycles: the sandbox turn-burn loop (the most instructive failure)
+
+The platform PR needed FOUR QA cycles; each failure was a real, distinct finding
+the deterministic gate caught by parking `needs-human` instead of guessing:
+
+1. **Seed step 401** — `qa_helpers.seed()` created tasks on an unauthenticated
+   client (v2 needs a bearer). Fix: re-seed via the app's own module in the
+   container. *All 5 tier-1 suites passed even here* — first proof the platform
+   works in CI.
+2. **error_max_turns @ 51/50** — read as "app outgrew the turn budget." Raised
+   the cap 50→100. WRONG diagnosis.
+3. **error_max_turns @ 101/100** — same wall one turn higher. The pattern
+   (always exhausts, never finishes) said *stuck*, not *slow*. Pulled the run
+   artifacts: **25 permission denials/run**. Under `--permission-mode dontAsk`,
+   `Bash(curl *)` auto-denied every multi-line / piped / VAR=x command the agent
+   naturally writes to test a live API. It spent 100 turns fighting the sandbox.
+4. **Fix**: broad `Bash` guarded by the deny-list (dangerous verbs, pipeline-file
+   edits) on a secret-less runner off main; QA-scoped disallow of repo/ticket
+   mutation so it stays observe-and-report. Turns back to 80.
+
+**Lessons**
+- *A budget that is always fully consumed is a stuck agent, not a slow one.*
+  Raising the ceiling masks it; read the failure mode, don't just extend it.
+- Arg-scoped `Bash(...)` allowlists are a determinism trap for agents that write
+  real shell (the research warned this). Allow broad Bash + strong deny-list for
+  interactive-testing agents; keep tight allowlists for agents that only need a
+  fixed command set.
+- The pipeline's value showed again: deterministic tier-1 + the no-verdict→
+  needs-human rule meant a badly-sandboxed agent never produced a false pass.
+- Instrument for this: per-run `permission_denials` count belongs in the phase
+  summary (a high count is the tell) — a candidate pipeline improvement.
