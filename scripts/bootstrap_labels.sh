@@ -3,15 +3,11 @@
 # Usage: [REPO=owner/name] scripts/bootstrap_labels.sh
 set -euo pipefail
 
-REPO="${REPO:-}"
-repo_args=()
-if [[ -n "$REPO" ]]; then
-  repo_args=(--repo "$REPO")
-fi
+REPO="${REPO:-$(gh repo view --json nameWithOwner --jq '.nameWithOwner')}"
 
 label() {
   local name="$1" color="$2" description="$3"
-  gh label create "$name" --force --color "$color" --description "$description" "${repo_args[@]}"
+  gh label create "$name" --force --color "$color" --description "$description" --repo "$REPO"
   echo "ok: $name"
 }
 
