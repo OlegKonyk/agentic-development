@@ -36,17 +36,25 @@ def create_app() -> FastAPI:
     async def index(request: Request) -> HTMLResponse:
         columns: dict[str, list[dict]] = {status: [] for status in STATUS_COLUMNS}
         api_error = False
+        task_count: int | None = None
         try:
             resp = await api(request).get("/api/tasks")
             resp.raise_for_status()
-            for task in resp.json():
+            tasks = resp.json()
+            task_count = len(tasks)
+            for task in tasks:
                 columns.setdefault(task.get("status", "todo"), []).append(task)
         except httpx.HTTPError:
             api_error = True
         return templates.TemplateResponse(
             request,
             "index.html",
-            {"columns": columns, "statuses": STATUS_COLUMNS, "api_error": api_error},
+            {
+                "columns": columns,
+                "statuses": STATUS_COLUMNS,
+                "api_error": api_error,
+                "task_count": task_count,
+            },
         )
 
     @app.get("/new", response_class=HTMLResponse)

@@ -1,5 +1,10 @@
 {% extends "base.html" %}
 {% block title %}Taskboard{% endblock %}
+{% block header_extra %}
+{% if task_count is not none %}
+<span class="task-count" data-testid="task-count">Tasks: {{ task_count }}</span>
+{% endif %}
+{% endblock %}
 {% block content %}
 <div class="board" data-testid="task-list">
   {% for status in statuses %}

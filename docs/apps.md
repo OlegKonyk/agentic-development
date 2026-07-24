@@ -31,14 +31,15 @@ status: "todo"|"doing"|"done", created_at: iso8601}`.
 - FastAPI + Jinja2, plain HTML forms (no JS framework). Talks to the API via
   `API_BASE_URL` env (default `http://localhost:8000`).
 - Pages:
-  - `GET /` — task list grouped by status; each row shows title + status
+  - `GET /` — task list grouped by status; each row shows title + status;
+    header shows the total task count across all statuses
   - `GET /new` — create form; `POST /new` submits then redirects to `/`
   - `POST /tasks/{id}/advance` — todo→doing→done, redirect to `/`
   - `POST /tasks/{id}/delete` — redirect to `/`
   - `GET /healthz` → `{"status": "ok"}`
 - Stable selectors for Playwright: `data-testid="task-list"`, `task-row`,
   `task-title`, `task-status`, `new-task-link`, `title-input`,
-  `description-input`, `submit-task`, `advance-btn`, `delete-btn`.
+  `description-input`, `submit-task`, `advance-btn`, `delete-btn`, `task-count`.
 
 ## gateway — Cloudflare Worker (dev port 8787)
 
