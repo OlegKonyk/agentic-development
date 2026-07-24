@@ -21,24 +21,40 @@ mkdir -p "$OUT_DIR"
 
 MCP_CONFIG=""
 DISALLOWED=""
+# Turn/budget caps scale with phase scope. QA grew with the app: verifying auth +
+# reminders + webhooks + chaos across ~8 ACs, plus exploration and fault-injection,
+# overran a 50-turn budget (error_max_turns on the v2 platform). --max-budget-usd
+# is the hard runaway guard; --max-turns the soft one.
 case "$PHASE" in
   product)
-    MODEL="${PRODUCT_MODEL:-opus}"; MAX_TURNS=30; SCHEMA="spec-output.json"
+    MODEL="${PRODUCT_MODEL:-opus}"; MAX_TURNS=30; MAX_BUDGET="${PRODUCT_BUDGET:-3}"
+    SCHEMA="spec-output.json"
     TOOLS="Read,Glob,Grep"
     ;;
   design)
-    MODEL="${DESIGN_MODEL:-opus}"; MAX_TURNS=30; SCHEMA="design-output.json"
+    MODEL="${DESIGN_MODEL:-opus}"; MAX_TURNS=30; MAX_BUDGET="${DESIGN_BUDGET:-3}"
+    SCHEMA="design-output.json"
     TOOLS="Read,Glob,Grep"
     ;;
   dev)
-    MODEL="${DEV_MODEL:-sonnet}"; MAX_TURNS=80; SCHEMA="dev-report.json"
+    MODEL="${DEV_MODEL:-sonnet}"; MAX_TURNS=120; MAX_BUDGET="${DEV_BUDGET:-12}"
+    SCHEMA="dev-report.json"
     TOOLS="Read,Glob,Grep,Edit,Write,Bash(uv run *),Bash(uv sync *),Bash(git add *),Bash(git commit *),Bash(git status),Bash(git diff *),Bash(git log *),Bash(mkdir *)"
     ;;
   qa)
-    MODEL="${QA_MODEL:-sonnet}"; MAX_TURNS=50; SCHEMA="qa-verdict.json"
-    TOOLS="Read,Glob,Grep,Bash(curl *),Bash(uv run pytest *),mcp__playwright__*"
+    MODEL="${QA_MODEL:-sonnet}"; MAX_TURNS="${QA_MAX_TURNS:-80}"; MAX_BUDGET="${QA_BUDGET:-8}"
+    SCHEMA="qa-verdict.json"
+    # Broad Bash, guarded by the deny-list in ci-settings.json (no push/merge/
+    # deploy/rm -rf/sudo, no edits to pipeline files) on a secret-less runner off
+    # the main branch. Arg-scoped patterns like `Bash(curl *)` auto-denied every
+    # multi-line/var-assignment/piped command the agent naturally writes — it
+    # burned 100 turns fighting the sandbox instead of testing (PR #10 cycles 2-3).
+    TOOLS="Read,Glob,Grep,Bash,mcp__playwright__*"
     MCP_CONFIG="$CC/mcp/qa.json"
-    DISALLOWED="mcp__playwright__browser_run_code_unsafe"
+    # QA observes and reports; it must not mutate the repo or the ticket (the
+    # deterministic workflow steps own commits and comments). git commit stays
+    # allowed globally for the dev phase, so scope these denials to QA here.
+    DISALLOWED="mcp__playwright__browser_run_code_unsafe,Bash(git commit *),Bash(git add *),Bash(gh pr comment *),Bash(gh issue comment *),Bash(gh pr edit *),Bash(gh issue edit *)"
     ;;
   *)
     echo "unknown phase: $PHASE" >&2; exit 1 ;;
@@ -52,6 +68,7 @@ ARGS=(
   --allowedTools "$TOOLS"
   --model "$MODEL"
   --max-turns "$MAX_TURNS"
+  --max-budget-usd "$MAX_BUDGET"
   --output-format json
   --json-schema "$(cat "$CC/schemas/$SCHEMA")"
   --no-session-persistence

@@ -8,4 +8,4 @@ COPY . .
 RUN uv sync --frozen --package taskboard-web --no-dev
 
 EXPOSE 8001
-CMD ["uv", "run", "--package", "taskboard-web", "uvicorn", "web.main:app", "--host", "0.0.0.0", "--port", "8001"]
+CMD ["uv", "run", "--frozen", "--no-dev", "--package", "taskboard-web", "uvicorn", "web.main:app", "--host", "0.0.0.0", "--port", "8001"]

@@ -16,15 +16,37 @@ Context directory: `$0` (all paths inside it):
 - `issue.json` — the ticket (title, body, comments incl. the spec and design with
   the final `AC-n` acceptance criteria)
 - `pr.json` — the PR under test (title, body, changed files)
-- `tier1.txt` — outcome of each tier-1 suite (unit, contract, e2e)
+- `tier1.txt` — outcome of each tier-1 suite (unit, contract, e2e, webhooks, resilience)
 - `reports/` — JUnit XML and pytest output from tier-1
-- The running stack: UI and API through the gateway at `http://localhost:8787`
-  (API calls need header `x-api-key: dev-key`), API direct at
-  `http://localhost:8000`, web direct at `http://localhost:8001`
+- The running stack (see `docs/apps.md` for full contracts): UI and API through
+  the gateway at `http://localhost:8787` (gateway needs header
+  `x-api-key: dev-key`; the API additionally needs a per-user bearer), API
+  direct at `http://localhost:8000`, web direct at `http://localhost:8001`
 
-Environment notes: the API was reset and seeded with the 3 standard tasks before
-this session. `POST http://localhost:8000/api/testing/reset` restores a clean
-slate — use it before AC verification if your exploration polluted state.
+Environment notes:
+- Seeded users: `alice@example.com` / `bob@example.com`, passwords in env
+  `QA_ALICE_PASS` / `QA_BOB_PASS`. Login via the UI form or
+  `POST /api/auth/login` for a bearer. Test BOTH authed and unauthed paths.
+- `POST http://localhost:8000/api/testing/reset` restores a clean slate (tasks/
+  sessions/webhook events wiped, users kept — existing bearers die, re-login).
+  `POST /api/testing/run-due-reminders` deterministically triggers the reminder
+  scheduler (E2E is trigger+poll, never sleep).
+- **Fault injection is yours to use** (these are HTTP calls, always allowed):
+  - Vendor (WireMock) admin at `http://localhost:8081/__admin`: program stubs
+    (`POST /__admin/mappings`, priority 1 beats baseline), inject
+    `fixedDelayMilliseconds`, `fault: CONNECTION_RESET_BY_PEER`, 5xx bodies;
+    inspect actual vendor calls via `GET /__admin/requests`; restore baseline
+    with `POST /__admin/mappings/reset`.
+  - Chaos (Toxiproxy) admin at `http://localhost:8474`: add toxics to proxies
+    `db` and `vendor` (`POST /proxies/{name}/toxics`, always `toxicity: 1.0`);
+    remove with `DELETE /proxies/{name}/toxics/{toxic}`.
+  - **You MUST undo every fault you inject before finishing** (reset WireMock
+    mappings, delete toxics) and verify the app recovered (login succeeds).
+    Report unremoved faults as a blocked verdict.
+- Vendor webhooks are simulated by signing deliveries yourself with
+  `VENDOR_WEBHOOK_SECRET` (HMAC-SHA256 of `{id}.{ts}.{body}`, headers
+  `webhook-id`/`webhook-timestamp`/`webhook-signature: v1,<base64>`) — the
+  mock does not push webhooks.
 
 ## Procedure
 
@@ -54,6 +76,23 @@ slate — use it before AC verification if your exploration polluted state.
      findings can ride along with a `pass`.
    - `blocked` when the environment is broken (services down, seed failed) or
      ACs are missing/untestable — say precisely what blocked you.
+
+## Budget discipline
+
+You have a bounded turn/cost budget. Spend it in this priority order and never
+run out before reporting:
+
+1. Read the ticket + tier-1 results, verify every AC (this is the gate — do it first).
+2. Triage any tier-1 failures.
+3. Exploratory charter — bounded; stop early if you're running long.
+4. **Always** emit the structured verdict. A verdict covering the ACs with light
+   exploration beats running out of turns with no verdict (that strands the
+   ticket as needs-human). If you sense you're past the halfway point and haven't
+   covered all ACs, cut exploration and report what you have, marking untested
+   ACs `not_testable` with the reason "budget".
+
+Be economical: batch checks, don't re-run tier-1 suites, don't re-verify a thing
+two ways once you have solid evidence.
 
 ## Hard rules
 

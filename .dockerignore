@@ -16,3 +16,11 @@ __pycache__
 **/.wrangler
 .pytest_cache
 **/.pytest_cache
+.ruff_cache
+**/.ruff_cache
+.hypothesis
+**/.hypothesis
+agent-out
+# Volume-mounted into their containers at runtime; never copied into images.
+vendor-mock
+toxiproxy

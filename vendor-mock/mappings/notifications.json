@@ -1,0 +1,43 @@
+{
+  "mappings": [
+    {
+      "name": "notifications: accepted",
+      "priority": 1,
+      "request": {
+        "method": "POST",
+        "urlPath": "/v1/notifications",
+        "headers": {
+          "x-vendor-key": {
+            "equalTo": "vendor-key"
+          }
+        }
+      },
+      "response": {
+        "status": 202,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "jsonBody": {
+          "notification_id": "{{randomValue type='UUID'}}"
+        }
+      }
+    },
+    {
+      "name": "notifications: missing or wrong api key",
+      "priority": 2,
+      "request": {
+        "method": "POST",
+        "urlPath": "/v1/notifications"
+      },
+      "response": {
+        "status": 401,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "jsonBody": {
+          "error": "invalid or missing x-vendor-key"
+        }
+      }
+    }
+  ]
+}

@@ -53,10 +53,10 @@ jobs:
       # Statuses go to HEAD_SHA — that's what branch protection evaluates.
       - uses: actions/checkout@v4
 
-      - name: Loop guard (max 3 QA cycles)
+      - name: Loop guard (max 10 QA cycles)
         run: |
           chmod +x scripts/*.sh
-          scripts/loop_guard.sh "$PR_NUMBER" '^qa-ready$' 3
+          scripts/loop_guard.sh "$PR_NUMBER" '^qa-ready$' 10
 
       - uses: astral-sh/setup-uv@v5
       - uses: actions/setup-node@v4
@@ -102,6 +102,16 @@ jobs:
           --output=test-results
           --reruns 1 --only-rerun 'TimeoutError|TargetClosedError'
 
+      - name: Tier 1 — webhook security
+        id: webhooks
+        continue-on-error: true
+        run: uv run pytest qa/tests/webhooks -q --junitxml=reports/webhooks.xml
+
+      - name: Tier 1 — resilience (vendor faults + chaos)
+        id: resilience
+        continue-on-error: true
+        run: uv run pytest qa/tests/resilience -q --junitxml=reports/resilience.xml
+
       - name: Gather agent context
         run: |
           gh pr view "$PR_NUMBER" --json number,title,body,files > context/pr.json
@@ -116,11 +126,16 @@ jobs:
             echo "unit=${{ steps.unit.outcome }}"
             echo "contract=${{ steps.contract.outcome }}"
             echo "e2e=${{ steps.e2e.outcome }}"
+            echo "webhooks=${{ steps.webhooks.outcome }}"
+            echo "resilience=${{ steps.resilience.outcome }}"
           } > context/tier1.txt
           cp -r reports context/reports
 
       - name: Reset and seed for the agent session
-        run: uv run python -c "from qa_helpers.client import ApiClient; c = ApiClient(); c.reset(); c.seed()"
+        # Re-seed via the app's own module (inside the api container) so the
+        # agent starts from the exact canonical dataset the stack boots with —
+        # alice + bob, fixed ids/timestamps. Runs DB-direct, no auth needed.
+        run: docker compose exec -T api uv run --frozen --no-dev --package taskboard-api python -m app.seed
 
       - name: Tier 2 — QA agent
         id: agent
@@ -135,7 +150,9 @@ jobs:
         id: gate
         run: >
           python3 scripts/qa_gate.py
-          --tier1 unit=${{ steps.unit.outcome }} contract=${{ steps.contract.outcome }} e2e=${{ steps.e2e.outcome }}
+          --tier1 unit=${{ steps.unit.outcome }} contract=${{ steps.contract.outcome }}
+          e2e=${{ steps.e2e.outcome }} webhooks=${{ steps.webhooks.outcome }}
+          resilience=${{ steps.resilience.outcome }}
           --result agent-out/qa-result.json
           --output agent-out/qa-output.json
           --comment agent-out/qa-comment.md
