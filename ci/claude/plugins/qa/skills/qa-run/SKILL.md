@@ -77,6 +77,23 @@ Environment notes:
    - `blocked` when the environment is broken (services down, seed failed) or
      ACs are missing/untestable — say precisely what blocked you.
 
+## Budget discipline
+
+You have a bounded turn/cost budget. Spend it in this priority order and never
+run out before reporting:
+
+1. Read the ticket + tier-1 results, verify every AC (this is the gate — do it first).
+2. Triage any tier-1 failures.
+3. Exploratory charter — bounded; stop early if you're running long.
+4. **Always** emit the structured verdict. A verdict covering the ACs with light
+   exploration beats running out of turns with no verdict (that strands the
+   ticket as needs-human). If you sense you're past the halfway point and haven't
+   covered all ACs, cut exploration and report what you have, marking untested
+   ACs `not_testable` with the reason "budget".
+
+Be economical: batch checks, don't re-run tier-1 suites, don't re-verify a thing
+two ways once you have solid evidence.
+
 ## Hard rules
 
 - Evidence over assertion: every AC status and every finding names what you

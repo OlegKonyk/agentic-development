@@ -21,21 +21,29 @@ mkdir -p "$OUT_DIR"
 
 MCP_CONFIG=""
 DISALLOWED=""
+# Turn/budget caps scale with phase scope. QA grew with the app: verifying auth +
+# reminders + webhooks + chaos across ~8 ACs, plus exploration and fault-injection,
+# overran a 50-turn budget (error_max_turns on the v2 platform). --max-budget-usd
+# is the hard runaway guard; --max-turns the soft one.
 case "$PHASE" in
   product)
-    MODEL="${PRODUCT_MODEL:-opus}"; MAX_TURNS=30; SCHEMA="spec-output.json"
+    MODEL="${PRODUCT_MODEL:-opus}"; MAX_TURNS=30; MAX_BUDGET="${PRODUCT_BUDGET:-3}"
+    SCHEMA="spec-output.json"
     TOOLS="Read,Glob,Grep"
     ;;
   design)
-    MODEL="${DESIGN_MODEL:-opus}"; MAX_TURNS=30; SCHEMA="design-output.json"
+    MODEL="${DESIGN_MODEL:-opus}"; MAX_TURNS=30; MAX_BUDGET="${DESIGN_BUDGET:-3}"
+    SCHEMA="design-output.json"
     TOOLS="Read,Glob,Grep"
     ;;
   dev)
-    MODEL="${DEV_MODEL:-sonnet}"; MAX_TURNS=80; SCHEMA="dev-report.json"
+    MODEL="${DEV_MODEL:-sonnet}"; MAX_TURNS=120; MAX_BUDGET="${DEV_BUDGET:-12}"
+    SCHEMA="dev-report.json"
     TOOLS="Read,Glob,Grep,Edit,Write,Bash(uv run *),Bash(uv sync *),Bash(git add *),Bash(git commit *),Bash(git status),Bash(git diff *),Bash(git log *),Bash(mkdir *)"
     ;;
   qa)
-    MODEL="${QA_MODEL:-sonnet}"; MAX_TURNS=50; SCHEMA="qa-verdict.json"
+    MODEL="${QA_MODEL:-sonnet}"; MAX_TURNS="${QA_MAX_TURNS:-100}"; MAX_BUDGET="${QA_BUDGET:-8}"
+    SCHEMA="qa-verdict.json"
     TOOLS="Read,Glob,Grep,Bash(curl *),Bash(uv run pytest *),mcp__playwright__*"
     MCP_CONFIG="$CC/mcp/qa.json"
     DISALLOWED="mcp__playwright__browser_run_code_unsafe"
@@ -52,6 +60,7 @@ ARGS=(
   --allowedTools "$TOOLS"
   --model "$MODEL"
   --max-turns "$MAX_TURNS"
+  --max-budget-usd "$MAX_BUDGET"
   --output-format json
   --json-schema "$(cat "$CC/schemas/$SCHEMA")"
   --no-session-persistence
