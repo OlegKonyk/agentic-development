@@ -1,0 +1,94 @@
+# Pipeline Learning Log
+
+One entry per pipeline run (or operational incident). Record what the run
+revealed about the agents and what we changed because of it. This file is the
+"improve" half of run → observe → improve.
+
+Template: **ticket / phase costs / verdict quality / gaps observed / changes made**.
+
+## 2026-07-24 — Ticket #1 "task counter" (maiden voyage, PR #2)
+
+- **Flow**: spec → design → dev → QA passed end-to-end unattended; ~8 spec ACs,
+  dev added 12 E2E tests unprompted; QA verified all ACs with evidence.
+  Costs: product ~$0.5, design ~$0.6, dev ~$1.9, QA $1.64/53 turns (estimates).
+- **Verdict quality**: high — evidence-first, no false findings, sensible
+  fallbacks when tools were unavailable; exploratory pass (unicode,
+  double-submit, gateway auth) was genuinely useful.
+- **Gaps observed**:
+  1. Playwright MCP browser missing on the runner (Python vs Node browser
+     caches) — the agent adapted with curl-based HTML assertions, valid here
+     but not for a JS-heavy UI. **Change**: phase-qa now also runs
+     `npx -y playwright install chromium`.
+  2. The agent could not exercise "API down" (docker stop denied — sandbox held
+     correctly) and fell back to code inspection. **Change**: the platform
+     upgrade (issue #3) adds WireMock + Toxiproxy so fault injection is an
+     allowed HTTP call, not a denied infra command.
+  3. Label-guard runs ("skipped" noise in Actions) are working as designed but
+     clutter the run list — acceptable for now; revisit if it impedes triage.
+- **Calibration backlog**: issues #4–#9 exercise distinct work shapes (crisp
+  feature, ambiguous ask, real bug, resilience feature, multi-layer feature,
+  QA-infra change). Promote them one at a time and log each here.
+
+## 2026-07-24 — Issue #3 "reality-grade platform" (PR #10, human+agents authored)
+
+- **Shape**: 4 parallel build agents over disjoint paths against a committed
+  contract (docs/apps.md v2), then a human-driven integration gauntlet. The
+  contract-first split worked: zero merge conflicts, and cross-agent seams
+  (webhook HMAC format, gateway x-api-key, seed dataset) were exactly where
+  the builders' structured warnings said to look.
+- **Integration found 6 real defects** the builders could not have caught
+  without running services — notably asyncpg's BEGIN bypassing command_timeout
+  (a stalled DB wire hung requests forever; fixed with request-deadline
+  middleware) and chaos-poisoned connection pools bleeding into the next test
+  (teardown now asserts recovery). Property fuzzing found an int32 overflow 500.
+- **Learning**: budgets must be designed as a set (wire latency < command
+  timeout < request deadline < stall budget; latency scenarios under the
+  deadline) — tuning them one test at a time produced three contradictory
+  configurations before the coherent one.
+- **Ops**: local Docker disk exhaustion crashed the daemon mid-gauntlet
+  (host disk at 100%) — cost ~30 min. CI runners don't have this failure mode;
+  another argument for the Actions-hosted execution model.
+- Verified: 131 tests / 5 suites green locally; PR #10 sent through agent QA
+  with the updated /qa:qa-run skill (fault-injection APIs now documented tools).
+
+## 2026-07-24 — PR #10 QA cycles: the sandbox turn-burn loop (the most instructive failure)
+
+The platform PR needed FOUR QA cycles; each failure was a real, distinct finding
+the deterministic gate caught by parking `needs-human` instead of guessing:
+
+1. **Seed step 401** — `qa_helpers.seed()` created tasks on an unauthenticated
+   client (v2 needs a bearer). Fix: re-seed via the app's own module in the
+   container. *All 5 tier-1 suites passed even here* — first proof the platform
+   works in CI.
+2. **error_max_turns @ 51/50** — read as "app outgrew the turn budget." Raised
+   the cap 50→100. WRONG diagnosis.
+3. **error_max_turns @ 101/100** — same wall one turn higher. The pattern
+   (always exhausts, never finishes) said *stuck*, not *slow*. Pulled the run
+   artifacts: **25 permission denials/run**. Under `--permission-mode dontAsk`,
+   `Bash(curl *)` auto-denied every multi-line / piped / VAR=x command the agent
+   naturally writes to test a live API. It spent 100 turns fighting the sandbox.
+4. **Fix**: broad `Bash` guarded by the deny-list (dangerous verbs, pipeline-file
+   edits) on a secret-less runner off main; QA-scoped disallow of repo/ticket
+   mutation so it stays observe-and-report. Turns back to 80.
+
+**Lessons**
+- *A budget that is always fully consumed is a stuck agent, not a slow one.*
+  Raising the ceiling masks it; read the failure mode, don't just extend it.
+- Arg-scoped `Bash(...)` allowlists are a determinism trap for agents that write
+  real shell (the research warned this). Allow broad Bash + strong deny-list for
+  interactive-testing agents; keep tight allowlists for agents that only need a
+  fixed command set.
+- The pipeline's value showed again: deterministic tier-1 + the no-verdict→
+  needs-human rule meant a badly-sandboxed agent never produced a false pass.
+- Instrument for this: per-run `permission_denials` count belongs in the phase
+  summary (a high count is the tell) — a candidate pipeline improvement.
+
+### Resolved — cycle 4: qa-passed (67 turns, $2.03)
+
+Broad-Bash fix worked. The agent verified all 9 ACs with strong evidence:
+drove WireMock 500-injection + Toxiproxy db-latency (with fault removal and
+recovery asserts), signed/duplicated webhooks for idempotency, auth matrix in
+both curl and browser, cross-user isolation, and audited docs/apps.md against
+the running app. This is the reality-grade agentic QA the project set out to
+demonstrate. Net: 4 cycles, each failure a distinct real issue the gate caught;
+zero false passes; the deterministic layer never wavered.
