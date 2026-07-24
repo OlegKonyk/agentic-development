@@ -29,9 +29,10 @@ CI Postgres runs on tmpfs with `fsync=off synchronous_commit=off`.
   (compose default `correct-horse-a` / `correct-horse-b`).
 - `Session {id: uuid, user_id, created_at, expires_at}` — DB-backed: logout
   deletes the row (true revocation, replayed tokens must 401).
-- `Task {id, owner_id, title 1..200, description, status todo|doing|done,
-  due_at: datetime|null, reminder_status none|pending|sent|failed, created_at}`
-  — strictly scoped to owner.
+- `Task {id, owner_id, title 1..200 non-blank (must contain a non-whitespace
+  character), description, status todo|doing|done, due_at: datetime|null,
+  reminder_status none|pending|sent|failed, created_at}` — strictly scoped to
+  owner.
 - `WebhookEvent {id: vendor event id (unique — dedupe), received_at, payload}`.
 
 ## apps/api — FastAPI, async SQLModel + asyncpg, Alembic (port 8000)
@@ -43,7 +44,8 @@ Auth (open): `POST /api/auth/login {email,password}` → 200 `{token, expires_at
 Tasks (require `Authorization: Bearer <token>`, else 401; scoped to owner;
 404 for other users' task ids — no existence leak): same CRUD surface as v1
 plus `due_at` (optional RFC3339, must be future on create/update else 422) and
-read-only `reminder_status`. All v1 contract fixes hold (RFC3339 `Z`
+read-only `reminder_status`. A whitespace-only `title` on create or update →
+422, same validation-error shape as `due_at`. All v1 contract fixes hold (RFC3339 `Z`
 timestamps, documented 400/404, no nullable query params); TaskId path bound is
 ≤ 2^31-1, matching the INTEGER column (larger ids overflowed asyncpg → 500,
 found by contract fuzzing).

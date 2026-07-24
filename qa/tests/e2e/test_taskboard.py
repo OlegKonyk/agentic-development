@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from playwright.sync_api import ConsoleMessage, Locator, Page, expect
 from qa_helpers import SEED_TASKS, ApiClient, alice_credentials, rfc3339_in
 
@@ -78,3 +80,22 @@ def test_board_has_no_console_errors(alice_api: ApiClient, alice_page: Page) -> 
     alice_page.goto("/")
     expect(alice_page.get_by_test_id("task-list").first).to_be_visible()
     assert errors == []
+
+
+def test_whitespace_only_title_is_rejected_in_ui(alice_api: ApiClient, alice_page: Page) -> None:
+    alice_api.seed()
+    alice_page.goto("/new")
+    alice_page.get_by_test_id("title-input").fill(" ")
+    alice_page.get_by_test_id("description-input").fill("should survive")
+    alice_page.get_by_test_id("due-at-input").fill("2026-03-01T12:30")
+    alice_page.get_by_test_id("submit-task").click()
+
+    expect(alice_page).to_have_url(re.compile(r"/new$"))
+    expect(alice_page.get_by_test_id("api-error")).to_be_visible()
+    expect(alice_page.get_by_test_id("description-input")).to_have_value("should survive")
+    expect(alice_page.get_by_test_id("due-at-input")).to_have_value("2026-03-01T12:30")
+
+    alice_page.goto("/")
+    expect(alice_page.get_by_test_id("task-count")).to_contain_text(str(len(SEED_TASKS)))
+    for title in alice_page.get_by_test_id("task-title").all_inner_texts():
+        assert not re.fullmatch(r"\s*", title)
