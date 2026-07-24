@@ -63,3 +63,26 @@ def test_vendor_reset_peer_marks_reminder_failed(
 
     status = wait_until(failed, timeout=30, message="reminder_status failed under reset_peer")
     assert status == "failed"
+
+
+def test_db_stall_recovery_first_request_succeeds(toxiproxy: ToxiproxyClient, api_url: str) -> None:
+    """Regression for the PR #10 agent-QA finding: after a DB stall clears, the
+    FIRST live request must succeed — no user eats a 500 from a stale pooled
+    connection. The app heals via a bounded pre-use ping (app/db.py)."""
+    from qa_helpers import alice_credentials
+
+    toxiproxy.add_toxic("db", "timeout", {"timeout": 0}, name="stall")
+    # Poison the pool: a DB-touching request that gets cut by the deadline.
+    with httpx.Client(base_url=api_url, timeout=12) as client:
+        email, password = alice_credentials()
+        poisoned = client.post("/api/auth/login", json={"email": email, "password": password})
+        assert poisoned.status_code >= 500  # stalled, cut by the request deadline
+
+        toxiproxy.remove_toxic("db", "stall")
+
+        # The very next request — first attempt, no retries — must be 200.
+        recovered = client.post("/api/auth/login", json={"email": email, "password": password})
+        assert recovered.status_code == 200, (
+            f"first post-recovery request got {recovered.status_code}: "
+            f"{recovered.text[:200]} — stale pooled connection served to a user"
+        )

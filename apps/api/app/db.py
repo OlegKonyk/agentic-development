@@ -1,9 +1,12 @@
+import asyncio
 import os
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from typing import Annotated
 
 from fastapi import Depends
+from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from sqlmodel import SQLModel
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -62,8 +65,32 @@ async def session_scope() -> AsyncIterator[AsyncSession]:
         yield session
 
 
+async def _validate(session: AsyncSession) -> None:
+    """Bounded pre-use ping that transparently heals stale pooled connections.
+
+    A chaos-killed (or otherwise dead) connection surfaces here instead of on
+    the user's query: attempt 1 fails fast, SQLAlchemy invalidates the pool
+    generation on the disconnect error, and attempt 2 pings a fresh connection.
+    Bounded by asyncio.timeout so a stalled wire cannot hang the ping the way
+    it hangs the dialect-level pool_pre_ping (found by agent QA on PR #10:
+    first live request after a cleared DB stall got a raw 500).
+    """
+    ping_timeout_s = float(os.environ.get("DB_PING_TIMEOUT_MS", "1000")) / 1000
+    for attempt in (1, 2):
+        try:
+            async with asyncio.timeout(ping_timeout_s):
+                await session.execute(text("SELECT 1"))
+            return
+        except (DBAPIError, TimeoutError, OSError):
+            with suppress(Exception):
+                await asyncio.wait_for(session.rollback(), ping_timeout_s)
+            if attempt == 2:
+                raise
+
+
 async def get_session() -> AsyncIterator[AsyncSession]:
     async with session_scope() as session:
+        await _validate(session)
         yield session
 
 

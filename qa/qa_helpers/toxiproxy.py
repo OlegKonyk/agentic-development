@@ -92,27 +92,20 @@ class ToxiproxyClient:
         return leaked
 
 
-def _assert_recovered(timeout: float = 15.0) -> None:
-    """Post-chaos recovery gate: a DB-touching request must succeed again.
+def _assert_recovered() -> None:
+    """Post-chaos recovery gate: the FIRST DB-touching request must succeed.
 
-    Chaos kills pooled connections; the first request after the toxic clears
-    pays for that (5xx) while SQLAlchemy recycles the pool. Draining that
-    error here makes 'the system recovered' an explicit teardown assertion —
-    and keeps it from bleeding into the next test's setup.
+    Strict single attempt on purpose. An earlier retry-loop version drained
+    the first post-chaos 500 and thereby masked a real app defect (stale
+    pooled connection served to the first user after a fault — found by agent
+    QA on PR #10). The app now heals stale connections transparently via a
+    bounded pre-use ping, so one attempt must be enough; a failure here is a
+    regression of that guarantee, not noise.
     """
     from qa_helpers.client import ApiClient, alice_credentials
-    from qa_helpers.wait_until import wait_until
 
     with ApiClient() as api:
-
-        def healthy() -> bool | None:
-            try:
-                api.login(*alice_credentials())
-                return True
-            except httpx.HTTPError:
-                return None
-
-        wait_until(healthy, timeout=timeout, message="API recovery after chaos teardown")
+        api.login(*alice_credentials())
 
 
 @pytest.fixture
