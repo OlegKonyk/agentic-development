@@ -92,3 +92,25 @@ both curl and browser, cross-user isolation, and audited docs/apps.md against
 the running app. This is the reality-grade agentic QA the project set out to
 demonstrate. Net: 4 cycles, each failure a distinct real issue the gate caught;
 zero false passes; the deterministic layer never wavered.
+
+## 2026-07-24 — Cycle 5: the QA agent finds a real bug the harness was hiding
+
+After the task-counter merge forced a fresh head SHA (per-SHA statuses are
+fail-safe: new code must earn a new verdict), cycle 5 returned a decisive
+**fail in 26 turns / $0.98**: after a Toxiproxy DB stall clears, the FIRST live
+request 500s (asyncpg 'connection is closed' from a stale pooled connection).
+Two-step repro, reproduced twice, root-caused from container logs.
+
+What makes this the thesis-proving finding:
+1. **The agent audited the PR's own claims** — it flagged that "teardown now
+   asserts recovery" was true only in the test fixture, not the application.
+   The fixture's retry-loop drain was *masking* the bug from tier-1.
+2. **Human review missed it; deterministic suites missed it; the agent's
+   exploratory chaos charter caught it.** Exactly the layered-QA argument.
+3. Fix: bounded pre-use connection ping (heals stale conns transparently);
+   the recovery assert is now strict single-attempt; the agent's repro is a
+   permanent regression test.
+
+Also observed: qa-failed auto-triggered rework, whose loop-guard (3) tripped →
+needs-human. Guard caps need to distinguish config-iteration cycles from true
+rework cycles — raised phase-qa's to 6 earlier; rework's stays tight on purpose.
