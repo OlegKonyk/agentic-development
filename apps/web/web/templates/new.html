@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}New task — Taskboard{% endblock %}
+{% block content %}
+<h2>New task</h2>
+<form class="stacked" method="post" action="/new">
+  <label for="title">Title</label>
+  <input id="title" name="title" required maxlength="200"
+         data-testid="title-input" value="{{ title | default('') }}">
+  <label for="description">Description</label>
+  <textarea id="description" name="description" rows="4"
+            data-testid="description-input">{{ description | default('') }}</textarea>
+  <p><button type="submit" class="btn-primary" data-testid="submit-task">Create task</button></p>
+</form>
+{% endblock %}

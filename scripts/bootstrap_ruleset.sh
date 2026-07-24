@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# One-time: protect main with the pipeline's required checks.
+# "ci" is the Actions job; "qa/agent-verdict" is the commit status the QA gate posts.
+set -euo pipefail
+
+REPO="${REPO:-$(gh repo view --json nameWithOwner --jq '.nameWithOwner')}"
+
+gh api "repos/${REPO}/rulesets" --method POST --input - <<'JSON'
+{
+  "name": "main-protection",
+  "target": "branch",
+  "enforcement": "active",
+  "conditions": { "ref_name": { "include": ["~DEFAULT_BRANCH"], "exclude": [] } },
+  "rules": [
+    { "type": "deletion" },
+    { "type": "non_fast_forward" },
+    {
+      "type": "pull_request",
+      "parameters": {
+        "required_approving_review_count": 0,
+        "dismiss_stale_reviews_on_push": false,
+        "require_code_owner_review": false,
+        "require_last_push_approval": false,
+        "required_review_thread_resolution": false,
+        "allowed_merge_methods": ["merge", "squash", "rebase"]
+      }
+    },
+    {
+      "type": "required_status_checks",
+      "parameters": {
+        "strict_required_status_checks_policy": false,
+        "required_status_checks": [
+          { "context": "ci" },
+          { "context": "qa/agent-verdict" }
+        ]
+      }
+    }
+  ]
+}
+JSON
+
+echo "Ruleset 'main-protection' created on ${REPO}."
+echo "Note: on a team project, raise required_approving_review_count to 1."

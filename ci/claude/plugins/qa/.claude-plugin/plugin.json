@@ -1,0 +1,8 @@
+{
+  "name": "qa",
+  "version": "1.0.0",
+  "description": "QA phase procedures for the agentic SDLC pipeline",
+  "author": {
+    "name": "agentic-development pipeline"
+  }
+}

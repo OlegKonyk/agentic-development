@@ -1,0 +1,45 @@
+name: Feature idea
+description: >-
+  File a feature idea for the Taskboard. It starts as stage:idea; when a human
+  applies the stage:spec label, the agentic pipeline picks it up and runs it
+  through spec, design, dev, and QA.
+labels:
+  - "stage:idea"
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        Filing this issue does **not** start any automation. A maintainer applies
+        the `stage:spec` label to approve it for the agentic pipeline.
+  - type: input
+    id: problem
+    attributes:
+      label: Problem
+      description: What problem are you trying to solve?
+    validations:
+      required: true
+  - type: textarea
+    id: desired-outcome
+    attributes:
+      label: Desired outcome
+      description: What should be true when this is done?
+    validations:
+      required: true
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Constraints / out of scope
+      description: Anything the solution must not do or touch.
+    validations:
+      required: false
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      options:
+        - P1
+        - P2
+        - P3
+      default: 1
+    validations:
+      required: true

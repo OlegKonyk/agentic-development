@@ -1,0 +1,87 @@
+name: phase-product
+# stage:spec → product agent writes the spec → stage:design
+# Transitions use the sdlc-orchestrator App token; GITHUB_TOKEN events never chain.
+
+on:
+  issues:
+    types: [labeled]
+
+permissions:
+  contents: read
+  issues: read
+
+concurrency:
+  group: product-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+env:
+  CLAUDE_CODE_VERSION: "2.1.219"
+
+jobs:
+  spec:
+    if: github.event.label.name == 'stage:spec'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      ISSUE: ${{ github.event.issue.number }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Mint orchestrator token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.SDLC_APP_CLIENT_ID }}
+          private-key: ${{ secrets.SDLC_APP_PRIVATE_KEY }}
+          permission-issues: write
+
+      - name: Loop guard
+        run: |
+          chmod +x scripts/*.sh
+          scripts/loop_guard.sh "$ISSUE"
+
+      - name: Gather context
+        run: |
+          mkdir -p context agent-out
+          gh issue view "$ISSUE" --json number,title,body,labels,comments > context/issue.json
+
+      - name: Product agent
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          npm install -g @anthropic-ai/claude-code@$CLAUDE_CODE_VERSION
+          scripts/run_agent.sh product "/product:spec context/issue.json"
+
+      - name: Render spec comment
+        run: |
+          python3 - <<'EOF'
+          import json, pathlib
+          out = json.loads(pathlib.Path("agent-out/product-output.json").read_text())
+          lines = ["<!-- sdlc:spec -->", "## 📋 Product spec (agent-generated)", "", out["spec_markdown"], "", "### Draft acceptance criteria"]
+          lines += [f"- **{ac['id']}**: {ac['description']}" for ac in out["acceptance_criteria"]]
+          if out["open_questions"]:
+              lines += ["", "### Open questions"] + [f"- {q}" for q in out["open_questions"]]
+          lines += ["", f"_Estimated scope: {out['estimated_scope']}_"]
+          pathlib.Path("agent-out/spec-comment.md").write_text("\n".join(lines))
+          EOF
+
+      - name: Transition → stage:design
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: scripts/transition.sh issue "$ISSUE" stage:spec stage:design agent-out/spec-comment.md
+
+      - name: Park on failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          echo "⚠️ The product phase failed — see ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}. Re-add \`stage:spec\` to retry." > park.md
+          scripts/transition.sh issue "$ISSUE" stage:spec needs-human park.md
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: product-run-${{ github.event.issue.number }}-${{ github.run_id }}
+          path: agent-out/
+          if-no-files-found: ignore

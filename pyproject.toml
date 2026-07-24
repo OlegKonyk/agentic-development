@@ -1,6 +1,9 @@
 [tool.uv.workspace]
 members = ["apps/api", "apps/web", "qa", "watcher"]
 
+[dependency-groups]
+dev = ["ruff>=0.8"]
+
 [tool.ruff]
 target-version = "py312"
 line-length = 100

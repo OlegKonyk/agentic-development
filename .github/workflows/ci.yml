@@ -1,0 +1,54 @@
+name: ci
+# Tier-0: fast deterministic checks on every PR push. Required check "ci".
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Install workspace
+        run: uv sync --all-packages
+
+      - name: Lint
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+
+      - name: State-machine lint
+        run: python3 scripts/state_lint.py
+
+      - name: Unit & integration tests
+        run: uv run pytest apps/api apps/web -q --junitxml=reports/unit.xml
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Gateway typecheck
+        run: |
+          cd gateway
+          npm ci
+          npm run typecheck
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ci-reports-${{ github.run_id }}
+          path: reports/
+          if-no-files-found: ignore

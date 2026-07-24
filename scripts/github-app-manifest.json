@@ -1,0 +1,16 @@
+{
+  "name": "sdlc-orchestrator",
+  "url": "https://github.com/OlegKonyk/agentic-development",
+  "hook_attributes": { "active": false },
+  "public": false,
+  "default_permissions": {
+    "contents": "write",
+    "issues": "write",
+    "pull_requests": "write",
+    "statuses": "write",
+    "checks": "write",
+    "actions": "read",
+    "metadata": "read"
+  },
+  "default_events": []
+}

@@ -1,0 +1,59 @@
+name: nightly-fuzz
+# Unbounded property-based fuzzing is valuable but nondeterministic — it lives
+# here, non-gating, and files a bug ticket on failure instead of blocking merges.
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Boot API
+        run: |
+          uv sync --all-packages
+          docker compose up -d --wait --wait-timeout 120 api
+          curl --retry 60 --retry-delay 1 --retry-all-errors -sf http://localhost:8000/healthz
+
+      - name: Fuzz the API contract
+        id: fuzz
+        continue-on-error: true
+        run: |
+          mkdir -p reports
+          uv run schemathesis run http://localhost:8000/openapi.json \
+            --checks all --max-examples 200 --report junit --report-junit-path reports/fuzz.xml \
+            2>&1 | tee reports/fuzz.log
+
+      - name: File a bug on failure
+        if: steps.fuzz.outcome == 'failure'
+        run: |
+          tail -c 60000 reports/fuzz.log > reports/fuzz-tail.log
+          {
+            echo "Nightly Schemathesis fuzz found contract violations. See run:"
+            echo "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            echo ""
+            echo '```'
+            cat reports/fuzz-tail.log
+            echo '```'
+          } > bug.md
+          gh issue create --title "Nightly contract fuzz failure ($(date -u +%F))" \
+            --label bug --body-file bug.md
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fuzz-${{ github.run_id }}
+          path: reports/
+          if-no-files-found: ignore

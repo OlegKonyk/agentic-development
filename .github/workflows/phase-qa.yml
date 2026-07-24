@@ -1,0 +1,167 @@
+name: phase-qa
+# The centerpiece. PR labeled qa-ready →
+#   tier 1 (deterministic): unit/integration + Schemathesis contract + Playwright E2E
+#   tier 2 (agentic): exploratory testing + AC verification + failure triage via claude -p
+#   gate (deterministic): scripts/qa_gate.py decides; commit status qa/agent-verdict on
+#   the head SHA; transition to qa-passed / qa-failed / needs-human via App token.
+
+on:
+  pull_request:
+    types: [labeled]
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: write
+  statuses: write
+
+concurrency:
+  group: qa-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+env:
+  CLAUDE_CODE_VERSION: "2.1.219"
+
+jobs:
+  qa:
+    if: github.event.label.name == 'qa-ready'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      GH_TOKEN: ${{ github.token }}
+      GATEWAY_API_KEY: dev-key
+      API_URL: http://localhost:8000
+    steps:
+      - name: Refuse fork PRs
+        if: github.event.pull_request.head.repo.full_name != github.repository
+        run: |
+          echo "::error::Fork PRs are not run by the QA agent (no secrets available)."
+          exit 1
+
+      - name: Mint orchestrator token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.SDLC_APP_CLIENT_ID }}
+          private-key: ${{ secrets.SDLC_APP_PRIVATE_KEY }}
+          permission-issues: write
+          permission-pull-requests: write
+
+      # Default checkout = the merge ref: we test the post-merge state.
+      # Statuses go to HEAD_SHA — that's what branch protection evaluates.
+      - uses: actions/checkout@v4
+
+      - name: Loop guard (max 3 QA cycles)
+        run: |
+          chmod +x scripts/*.sh
+          scripts/loop_guard.sh "$PR_NUMBER" '^qa-ready$' 3
+
+      - uses: astral-sh/setup-uv@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: |
+          uv sync --all-packages
+          (cd gateway && npm ci)
+          uv run playwright install --with-deps chromium
+
+      - name: Boot the stack
+        run: |
+          docker compose up -d --wait --wait-timeout 120
+          (cd gateway && nohup npx wrangler dev --port 8787 > ../wrangler-dev.log 2>&1 &)
+          for url in http://localhost:8000/healthz http://localhost:8001/healthz http://localhost:8787/gw/healthz; do
+            curl --retry 60 --retry-delay 1 --retry-all-errors -sf "$url" > /dev/null
+          done
+          mkdir -p reports context agent-out agent-artifacts
+
+      - name: Tier 1 — unit & integration
+        id: unit
+        continue-on-error: true
+        run: uv run pytest apps/api apps/web -q --junitxml=reports/unit.xml
+
+      - name: Tier 1 — API contract (Schemathesis)
+        id: contract
+        continue-on-error: true
+        run: uv run pytest qa/tests/contract -q --junitxml=reports/contract.xml
+
+      - name: Tier 1 — UI E2E (Playwright)
+        id: e2e
+        continue-on-error: true
+        run: >
+          uv run pytest qa/tests/e2e -q --junitxml=reports/e2e.xml
+          --base-url http://localhost:8787
+          --tracing=retain-on-failure --screenshot=only-on-failure
+          --output=test-results
+          --reruns 1 --only-rerun 'TimeoutError|TargetClosedError'
+
+      - name: Gather agent context
+        run: |
+          gh pr view "$PR_NUMBER" --json number,title,body,files > context/pr.json
+          ISSUE=$(gh pr view "$PR_NUMBER" --json body --jq '.body' \
+            | grep -oiE '(fixes|closes|resolves) #[0-9]+' | head -1 | grep -oE '[0-9]+' || true)
+          if [ -n "$ISSUE" ]; then
+            gh issue view "$ISSUE" --json number,title,body,comments > context/issue.json
+          else
+            echo '{"warning": "no linked issue found in PR body"}' > context/issue.json
+          fi
+          {
+            echo "unit=${{ steps.unit.outcome }}"
+            echo "contract=${{ steps.contract.outcome }}"
+            echo "e2e=${{ steps.e2e.outcome }}"
+          } > context/tier1.txt
+          cp -r reports context/reports
+
+      - name: Reset and seed for the agent session
+        run: uv run python -c "from qa_helpers.client import ApiClient; c = ApiClient(); c.reset(); c.seed()"
+
+      - name: Tier 2 — QA agent
+        id: agent
+        continue-on-error: true
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          npm install -g @anthropic-ai/claude-code@$CLAUDE_CODE_VERSION
+          scripts/run_agent.sh qa "/qa:qa-run context"
+
+      - name: Gate (deterministic decision)
+        id: gate
+        run: >
+          python3 scripts/qa_gate.py
+          --tier1 unit=${{ steps.unit.outcome }} contract=${{ steps.contract.outcome }} e2e=${{ steps.e2e.outcome }}
+          --result agent-out/qa-result.json
+          --output agent-out/qa-output.json
+          --comment agent-out/qa-comment.md
+
+      - name: Publish verdict (status + comment)
+        run: |
+          gh api "repos/${GITHUB_REPOSITORY}/statuses/${HEAD_SHA}" \
+            -f state="${{ steps.gate.outputs.gate }}" \
+            -f context=qa/agent-verdict \
+            -f description="${{ steps.gate.outputs.reason }}" \
+            -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          gh pr comment "$PR_NUMBER" --body-file agent-out/qa-comment.md
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qa-run-${{ github.event.pull_request.number }}-${{ github.run_id }}
+          path: |
+            reports/
+            test-results/
+            agent-artifacts/
+            agent-out/
+            wrangler-dev.log
+          if-no-files-found: ignore
+
+      - name: Transition
+        if: always()
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          LABEL="${{ steps.gate.outputs.pr_label }}"
+          [ -n "$LABEL" ] || LABEL=needs-human
+          scripts/transition.sh pr "$PR_NUMBER" qa-ready "$LABEL"

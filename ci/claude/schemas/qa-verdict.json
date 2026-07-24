@@ -1,0 +1,54 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["verdict", "acceptance_criteria", "findings", "tier1_triage", "summary"],
+  "properties": {
+    "verdict": {
+      "type": "string",
+      "enum": ["pass", "fail", "blocked"],
+      "description": "pass = all ACs verified and no critical/high findings; fail = reproducible defect found; blocked = environment broken or verification impossible"
+    },
+    "acceptance_criteria": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "status", "evidence"],
+        "properties": {
+          "id": { "type": "string", "description": "AC id from the ticket, e.g. AC-1" },
+          "status": { "type": "string", "enum": ["verified", "failed", "not_testable"] },
+          "evidence": { "type": "string", "description": "What was directly observed: steps taken, values seen, artifact path" }
+        }
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["severity", "title", "repro_steps", "artifact_paths"],
+        "properties": {
+          "severity": { "type": "string", "enum": ["critical", "high", "medium", "low"] },
+          "title": { "type": "string" },
+          "repro_steps": { "type": "string", "description": "Exact numbered steps a human can follow to reproduce" },
+          "artifact_paths": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "tier1_triage": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["test", "classification", "reason"],
+        "properties": {
+          "test": { "type": "string" },
+          "classification": { "type": "string", "enum": ["bug", "infra", "flake"] },
+          "reason": { "type": "string" }
+        }
+      }
+    },
+    "summary": { "type": "string", "description": "3-6 sentence human-readable summary of what was tested and the outcome" }
+  }
+}

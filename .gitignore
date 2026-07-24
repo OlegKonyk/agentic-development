@@ -11,8 +11,11 @@ data/
 *.db
 test-results/
 agent-artifacts/
+agent-out/
+context/
 reports/
 playwright-report/
+wrangler-dev.log
 
 # Node
 node_modules/

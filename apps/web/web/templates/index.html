@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Taskboard{% endblock %}
+{% block content %}
+<div class="board" data-testid="task-list">
+  {% for status in statuses %}
+  <section class="column" id="column-{{ status }}">
+    <h2>{{ status }}</h2>
+    {% for task in columns[status] %}
+    <div class="task" data-testid="task-row" data-task-id="{{ task.id }}">
+      <div class="title" data-testid="task-title">{{ task.title }}</div>
+      <div class="status" data-testid="task-status">{{ task.status }}</div>
+      <div class="actions">
+        <form method="post" action="/tasks/{{ task.id }}/advance">
+          <button type="submit" class="btn-advance" data-testid="advance-btn">Advance</button>
+        </form>
+        <form method="post" action="/tasks/{{ task.id }}/delete">
+          <button type="submit" class="btn-delete" data-testid="delete-btn">Delete</button>
+        </form>
+      </div>
+    </div>
+    {% endfor %}
+  </section>
+  {% endfor %}
+</div>
+{% endblock %}

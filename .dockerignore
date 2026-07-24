@@ -1,0 +1,18 @@
+# Workspace member sources (qa/, watcher/, apps/, gateway config) stay in the
+# build context: uv sync --frozen inside the image needs every member pyproject.
+.git
+.venv
+**/.venv
+node_modules
+**/node_modules
+data
+test-results
+**/test-results
+agent-artifacts
+__pycache__
+**/__pycache__
+*.pyc
+.wrangler
+**/.wrangler
+.pytest_cache
+**/.pytest_cache

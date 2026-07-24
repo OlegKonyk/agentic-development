@@ -1,0 +1,92 @@
+name: deploy
+# Merge to main → deploy the gateway to workers.dev (real, if Cloudflare secrets
+# exist; simulated otherwise), smoke-test, close the loop on the ticket.
+# The Python apps are CI-ephemeral in this free-tier setup — their "deploy" is
+# explicitly simulated and reported as such.
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-main
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve merged PR and ticket
+        id: meta
+        run: |
+          PR=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/pulls" --jq '.[0].number' 2>/dev/null || true)
+          ISSUE=""
+          if [ -n "$PR" ]; then
+            ISSUE=$(gh pr view "$PR" --json body --jq '.body' \
+              | grep -oiE '(fixes|closes|resolves) #[0-9]+' | head -1 | grep -oE '[0-9]+' || true)
+          fi
+          echo "pr=$PR" >> "$GITHUB_OUTPUT"
+          echo "issue=$ISSUE" >> "$GITHUB_OUTPUT"
+          echo "merged PR: ${PR:-none}, ticket: ${ISSUE:-none}"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Deploy gateway
+        id: gateway
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "mode=simulated" >> "$GITHUB_OUTPUT"
+            echo "## 🚀 Deploy (simulated)" >> "$GITHUB_STEP_SUMMARY"
+            echo "No CLOUDFLARE_API_TOKEN configured — gateway deploy skipped, app deploy simulated." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          cd gateway && npm ci
+          npx wrangler deploy | tee deploy.log
+          URL=$(grep -oE 'https://[a-zA-Z0-9.-]+\.workers\.dev' deploy.log | head -1 || true)
+          echo "mode=deployed" >> "$GITHUB_OUTPUT"
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          echo "## 🚀 Gateway deployed: $URL" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Post-deploy smoke test
+        if: steps.gateway.outputs.mode == 'deployed' && steps.gateway.outputs.url != ''
+        run: curl --retry 10 --retry-delay 2 --retry-all-errors -sf "${{ steps.gateway.outputs.url }}/gw/healthz"
+
+      - name: Mint orchestrator token
+        id: app-token
+        if: steps.meta.outputs.issue != ''
+        continue-on-error: true
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.SDLC_APP_CLIENT_ID }}
+          private-key: ${{ secrets.SDLC_APP_PRIVATE_KEY }}
+          permission-issues: write
+
+      - name: Close the loop on the ticket
+        if: steps.meta.outputs.issue != '' && steps.app-token.outputs.token != ''
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          ISSUE="${{ steps.meta.outputs.issue }}"
+          MODE="${{ steps.gateway.outputs.mode }}"
+          URL="${{ steps.gateway.outputs.url }}"
+          if [ "$MODE" = "deployed" ]; then
+            echo "✅ Shipped in \`${GITHUB_SHA:0:7}\` — gateway live at $URL (Python apps: simulated deploy, CI-ephemeral by design)." > note.md
+          else
+            echo "✅ Shipped in \`${GITHUB_SHA:0:7}\` — deploy simulated (no Cloudflare credentials configured)." > note.md
+          fi
+          chmod +x scripts/*.sh
+          scripts/transition.sh issue "$ISSUE" stage:qa stage:done note.md
+          gh issue edit "$ISSUE" --add-label deployed

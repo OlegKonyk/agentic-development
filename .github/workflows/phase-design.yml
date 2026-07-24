@@ -1,0 +1,87 @@
+name: phase-design
+# stage:design → design agent writes the technical design + final ACs → stage:dev
+
+on:
+  issues:
+    types: [labeled]
+
+permissions:
+  contents: read
+  issues: read
+
+concurrency:
+  group: design-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+env:
+  CLAUDE_CODE_VERSION: "2.1.219"
+
+jobs:
+  design:
+    if: github.event.label.name == 'stage:design'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      ISSUE: ${{ github.event.issue.number }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Mint orchestrator token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.SDLC_APP_CLIENT_ID }}
+          private-key: ${{ secrets.SDLC_APP_PRIVATE_KEY }}
+          permission-issues: write
+
+      - name: Loop guard
+        run: |
+          chmod +x scripts/*.sh
+          scripts/loop_guard.sh "$ISSUE"
+
+      - name: Gather context
+        run: |
+          mkdir -p context agent-out
+          gh issue view "$ISSUE" --json number,title,body,labels,comments > context/issue.json
+
+      - name: Design agent
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          npm install -g @anthropic-ai/claude-code@$CLAUDE_CODE_VERSION
+          scripts/run_agent.sh design "/design:design context/issue.json"
+
+      - name: Render design comment
+        run: |
+          python3 - <<'EOF'
+          import json, pathlib
+          out = json.loads(pathlib.Path("agent-out/design-output.json").read_text())
+          lines = ["<!-- sdlc:design -->", "## 📐 Technical design (agent-generated)", "", out["design_markdown"]]
+          for key, title in [("api_changes", "API changes"), ("ui_changes", "UI changes"), ("test_plan", "Test plan")]:
+              if out[key]:
+                  lines += ["", f"### {title}"] + [f"- {item}" for item in out[key]]
+          lines += ["", "### Final acceptance criteria (QA verifies these verbatim)"]
+          lines += [f"- **{ac['id']}**: {ac['description']}" for ac in out["acceptance_criteria"]]
+          pathlib.Path("agent-out/design-comment.md").write_text("\n".join(lines))
+          EOF
+
+      - name: Transition → stage:dev
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: scripts/transition.sh issue "$ISSUE" stage:design stage:dev agent-out/design-comment.md
+
+      - name: Park on failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          echo "⚠️ The design phase failed — see ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}. Re-add \`stage:design\` to retry." > park.md
+          scripts/transition.sh issue "$ISSUE" stage:design needs-human park.md
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: design-run-${{ github.event.issue.number }}-${{ github.run_id }}
+          path: agent-out/
+          if-no-files-found: ignore

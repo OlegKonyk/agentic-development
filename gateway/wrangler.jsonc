@@ -1,0 +1,26 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "agentic-gateway",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-01",
+  "workers_dev": true,
+  "observability": {
+    "enabled": true
+  },
+  "vars": {
+    "API_ORIGIN": "http://localhost:8000",
+    "WEB_ORIGIN": "http://localhost:8001",
+    "GATEWAY_API_KEY": "dev-key"
+  },
+  "env": {
+    "production": {
+      // Placeholders only. In real use, secrets (GATEWAY_API_KEY) move to
+      // `wrangler secret put GATEWAY_API_KEY --env production` instead of vars.
+      "vars": {
+        "API_ORIGIN": "https://api.example.com",
+        "WEB_ORIGIN": "https://web.example.com",
+        "GATEWAY_API_KEY": "change-me"
+      }
+    }
+  }
+}

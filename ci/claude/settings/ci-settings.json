@@ -1,0 +1,26 @@
+{
+  "env": {
+    "DISABLE_AUTOUPDATER": "1",
+    "DISABLE_TELEMETRY": "1",
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+    "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1"
+  },
+  "permissions": {
+    "deny": [
+      "Bash(git push *)",
+      "Bash(gh pr merge *)",
+      "Bash(gh pr create *)",
+      "Bash(gh issue edit *)",
+      "Bash(gh pr edit *)",
+      "Bash(wrangler deploy *)",
+      "Bash(npx wrangler deploy *)",
+      "Bash(rm -rf *)",
+      "Bash(sudo *)",
+      "Edit(//.github/workflows/**)",
+      "Edit(//ci/claude/**)",
+      "Edit(//scripts/**)",
+      "WebFetch",
+      "WebSearch"
+    ]
+  }
+}

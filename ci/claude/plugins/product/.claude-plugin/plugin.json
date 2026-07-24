@@ -1,0 +1,8 @@
+{
+  "name": "product",
+  "version": "1.0.0",
+  "description": "Product phase procedures for the agentic SDLC pipeline",
+  "author": {
+    "name": "agentic-development pipeline"
+  }
+}
