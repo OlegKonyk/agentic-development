@@ -17,8 +17,27 @@ def _require_non_blank(value: str) -> str:
     return value
 
 
+def _require_storable(value: str) -> str:
+    # JSON admits lone UTF-16 surrogates and NUL, but neither survives the trip
+    # to Postgres: surrogates fail UTF-8 encoding and NUL is rejected by the
+    # text codec — unguarded, both crash asyncpg's bind into a 500
+    # (Schemathesis findings: login email, task fields).
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError:
+        raise ValueError("string must not contain unpaired surrogates") from None
+    if "\x00" in value:
+        raise ValueError("string must not contain NUL characters")
+    return value
+
+
+StorableStr = Annotated[str, AfterValidator(_require_storable)]
+
 Title = Annotated[
-    str, PydanticField(min_length=1, max_length=200), AfterValidator(_require_non_blank)
+    str,
+    PydanticField(min_length=1, max_length=200),
+    AfterValidator(_require_storable),
+    AfterValidator(_require_non_blank),
 ]
 
 
@@ -87,13 +106,13 @@ class WebhookEvent(SQLModel, table=True):
 
 class TaskCreate(BaseModel):
     title: Title
-    description: str = ""
+    description: StorableStr = ""
     due_at: DueAt | None = None
 
 
 class TaskUpdate(BaseModel):
     title: Title | None = None
-    description: str | None = None
+    description: StorableStr | None = None
     status: Status | None = None
     due_at: DueAt | None = None
 
@@ -122,8 +141,8 @@ class UserRead(BaseModel):
 
 
 class LoginRequest(BaseModel):
-    email: str
-    password: str
+    email: StorableStr
+    password: StorableStr
 
 
 class LoginResponse(BaseModel):

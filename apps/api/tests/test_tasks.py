@@ -268,3 +268,40 @@ async def test_delete_task(client: AsyncClient, alice_headers: dict) -> None:
 async def test_delete_unknown_task_404(client: AsyncClient, alice_headers: dict) -> None:
     resp = await client.delete("/api/tasks/9999", headers=alice_headers)
     assert resp.status_code == 404
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        '{"title": "\\ud800"}',
+        '{"title": "ok", "description": "a\\u0000b"}',
+    ],
+    ids=["surrogate-title", "nul-description"],
+)
+async def test_create_task_unstorable_strings_422(
+    client: AsyncClient, alice_headers: dict, body: str
+) -> None:
+    # Same family as the login regression: surrogates/NUL crash the asyncpg
+    # bind into a 500 unless rejected at the model boundary.
+    resp = await client.post(
+        "/api/tasks",
+        content=body.encode("utf-8"),
+        headers={"Content-Type": "application/json", **alice_headers},
+    )
+    assert resp.status_code == 422
+
+
+async def test_patch_surrogate_status_echo_is_422_not_500(
+    client: AsyncClient, alice_headers: dict
+) -> None:
+    # Body validation fires before the 404 lookup, so no task row is needed.
+    # Pins the echo path alone: status is a Literal (no storable-string
+    # validator), so the 422 body reflects the raw surrogate input, which
+    # used to crash response serialization into a 500.
+    resp = await client.patch(
+        "/api/tasks/1",
+        content=b'{"status": "\\ud800"}',
+        headers={"Content-Type": "application/json", **alice_headers},
+    )
+    assert resp.status_code == 422
+    assert resp.json()["detail"]
