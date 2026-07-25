@@ -133,9 +133,7 @@ def test_format_due_at_renders_human_label() -> None:
     assert format_due_at(datetime(2026, 7, 25, 12, 34, 56, tzinfo=UTC)) == "25 Jul 2026, 12:34 UTC"
     assert format_due_at(datetime(2026, 7, 5, 9, 0, tzinfo=UTC)) == "05 Jul 2026, 09:00 UTC"
     plus_two = timezone(timedelta(hours=2))
-    assert (
-        format_due_at(datetime(2026, 7, 25, 14, 34, tzinfo=plus_two)) == "25 Jul 2026, 12:34 UTC"
-    )
+    assert format_due_at(datetime(2026, 7, 25, 14, 34, tzinfo=plus_two)) == "25 Jul 2026, 12:34 UTC"
 
 
 def test_parse_due_at_accepts_z_naive_and_rejects_garbage() -> None:
