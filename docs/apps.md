@@ -105,7 +105,9 @@ only when the task has a `due_at`; `reminder-badge` when status ≠ none; new
 (absent from the DOM otherwise, not merely hidden); within each column, rows
 are ordered by soonest `due_at` first, undated tasks last, ascending task id
 as tie-break — `GET /api/tasks` ordering and payload are unchanged, this is a
-web-layer-only concern), `GET|POST /new` (adds optional `due-at-input`),
+web-layer-only concern); row actions carry task-scoped accessible names
+(`aria-label="Advance <title>"` / `"Delete <title>"`), testids and visible
+text unchanged, `GET|POST /new` (adds optional `due-at-input`),
 advance/delete as v1, `GET /healthz`. All forms carry hidden `csrf_token`
 (session-stored, compared on POST; mismatch → 403).
 
@@ -135,7 +137,10 @@ asserts no toxics leak between tests.
   tmp (never committed); `alice_page` / `bob_page` / unauthed `page`.
   Covers: v1 flows (authed), unauthed redirect sweep, wrong password, logout
   revocation (replayed cookie → /login), cross-user isolation (alice ≠ bob),
-  reminder trigger+poll (`wait_until` helper, deadline 15s, no sleeps).
+  reminder trigger+poll (`wait_until` helper, deadline 15s, no sleeps),
+  accessibility smoke (non-empty accessible names on form controls and board
+  row actions, keyboard focus order on the login and new-task forms, exactly
+  one banner + one main landmark per page).
 - `tests/contract/` — Schemathesis v4 against the API (auth'd via bearer
   override), bounded + deterministic as v1.
 - `tests/resilience/` — vendor faults via WireMock admin (5xx → reminder

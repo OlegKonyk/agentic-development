@@ -672,3 +672,68 @@ def test_healthz(client: TestClient) -> None:
 
     assert resp.status_code == 200
     assert resp.json() == {"status": "ok"}
+
+
+# --- accessibility markup ---------------------------------------------------
+
+
+@respx.mock
+def test_index_row_actions_carry_task_scoped_aria_labels(client: TestClient) -> None:
+    login(client)
+    mock_board()
+
+    body = client.get("/").text
+
+    assert 'aria-label="Advance Write the spec"' in body
+    assert 'aria-label="Delete Write the spec"' in body
+    assert body.count('aria-label="Delete') == len(SEEDED)
+
+
+@respx.mock
+def test_index_row_action_aria_labels_are_escaped(client: TestClient) -> None:
+    login(client)
+    respx.get(f"{API}/api/auth/me").mock(return_value=httpx.Response(200, json=ME))
+    task = {**SEEDED[0], "title": '<script>"boom"</script>'}
+    respx.get(f"{API}/api/tasks").mock(return_value=httpx.Response(200, json=[task]))
+
+    body = client.get("/").text
+
+    assert '<script>"boom"</script>' not in body
+    assert "&lt;script&gt;" in body
+    assert "&#34;" in body
+
+
+def test_login_form_labels_are_associated(client: TestClient) -> None:
+    body = client.get("/login").text
+
+    assert '<label for="email">' in body
+    assert 'id="email"' in body
+    assert '<label for="password">' in body
+    assert 'id="password"' in body
+
+
+@respx.mock
+def test_new_form_labels_are_associated(client: TestClient) -> None:
+    login(client)
+
+    body = client.get("/new").text
+
+    assert '<label for="title">' in body
+    assert 'id="title"' in body
+    assert '<label for="description">' in body
+    assert 'id="description"' in body
+    assert '<label for="due_at">' in body
+    assert 'id="due_at"' in body
+
+
+@respx.mock
+def test_pages_render_banner_and_main_landmarks(client: TestClient) -> None:
+    login(client)
+    mock_board()
+
+    login_body = client.get("/login").text
+    board_body = client.get("/").text
+
+    for body in (login_body, board_body):
+        assert body.count("<header>") == 1
+        assert body.count("<main>") == 1
