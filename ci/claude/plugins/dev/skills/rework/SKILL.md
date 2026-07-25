@@ -26,8 +26,12 @@ You are on the PR branch. The orchestrator pushes and relabels afterwards.
 3. Findings triaged as `infra` or `flake` are not yours to fix in app code — if
    you agree with the triage, note it in `concerns`; if you find it's actually a
    product bug, fix it.
-4. Verify: `uv run pytest apps/api apps/web -q` and `uv run ruff check .` green.
-   Record real outcomes in `commands_run`.
-5. Commit in logical chunks. Do NOT push.
+4. The pipeline's own machinery — `.github/`, `ci/claude/`, `scripts/` — is
+   off-limits even when a finding demands it; the push step rejects any commit
+   touching those paths. Record such findings in `concerns` (name the file and
+   the change it needs) and leave them to the orchestrator.
+5. Verify: `uv run pytest apps/api apps/web -q` and `uv run ruff check .` and
+   `uv run ruff format --check .` green. Record real outcomes in `commands_run`.
+6. Commit in logical chunks. Do NOT push.
 
 Report via the structured output schema only.

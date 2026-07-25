@@ -44,6 +44,10 @@ jobs:
         with:
           token: ${{ steps.app-token.outputs.token }}
           fetch-depth: 0
+          # The agent runs in this checkout; never leave the App token in
+          # .git/config for its child processes. Push steps authenticate
+          # explicitly.
+          persist-credentials: false
 
       - name: Loop guard
         run: |
@@ -87,10 +91,33 @@ jobs:
           echo "agent made $COUNT commits"
           [ "$COUNT" -gt 0 ] || { echo "::error::dev agent produced no commits"; exit 1; }
 
+      - name: Enforce privileged-path boundary
+        # Deny rules steer the agent; this diff check is the hard stop. A
+        # settings pattern bug once left the deny rules dead and rework edited
+        # the QA charter — prose and permission flags are advisory, the diff
+        # is not. Failure parks the ticket needs-human via Park on failure.
+        run: |
+          BAD=$(git diff --name-only origin/main...HEAD -- .github/ ci/claude/ scripts/)
+          if [ -n "$BAD" ]; then
+            echo "::error::agent commits touch pipeline-privileged paths (human-only):"
+            echo "$BAD"
+            exit 1
+          fi
+          # Uncommitted tampering counts too: later steps execute these
+          # scripts with the App token, and agent child processes (uv run)
+          # can write files no commit records.
+          DIRTY=$(git status --porcelain -- .github/ ci/claude/ scripts/)
+          if [ -n "$DIRTY" ]; then
+            echo "::error::working tree dirty under pipeline-privileged paths:"
+            echo "$DIRTY"
+            exit 1
+          fi
+
       - name: Push and open PR (labeled qa-ready)
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           git push origin "${{ steps.branch.outputs.branch }}"
           python3 - <<'EOF'
           import json, os, pathlib
@@ -163,6 +190,9 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
           ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
+          # Same rationale as implement: no persisted App token around the
+          # agent step; the push step authenticates explicitly.
+          persist-credentials: false
 
       - name: Loop guard (max 3 QA cycles)
         run: |
@@ -212,11 +242,31 @@ jobs:
           npm install -g @anthropic-ai/claude-code@$CLAUDE_CODE_VERSION
           scripts/run_agent.sh dev "/dev:rework context"
 
+      - name: Enforce privileged-path boundary
+        # Same hard stop as the implement job, over this run's new commits only
+        # (privileged commits already on the branch are the orchestrator's).
+        run: |
+          BAD=$(git diff --name-only "${{ github.event.pull_request.head.sha }}"..HEAD -- .github/ ci/claude/ scripts/)
+          if [ -n "$BAD" ]; then
+            echo "::error::agent commits touch pipeline-privileged paths (human-only):"
+            echo "$BAD"
+            exit 1
+          fi
+          DIRTY=$(git status --porcelain -- .github/ ci/claude/ scripts/)
+          if [ -n "$DIRTY" ]; then
+            echo "::error::working tree dirty under pipeline-privileged paths:"
+            echo "$DIRTY"
+            exit 1
+          fi
+
       - name: Require commits and push
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           COUNT=$(git rev-list --count "origin/${{ github.event.pull_request.head.ref }}"..HEAD)
           echo "agent made $COUNT commits"
           [ "$COUNT" -gt 0 ] || { echo "::error::rework agent produced no commits"; exit 1; }
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           git push origin "${{ github.event.pull_request.head.ref }}"
 
       - name: Transition PR → qa-ready
