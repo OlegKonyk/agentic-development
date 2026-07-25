@@ -136,8 +136,7 @@ def test_login_form_focus_order(page: Page) -> None:
     seq = _tab_sequence(page)
     observed = [t for t in seq if t in expected]
     assert observed == expected, (
-        f"login form focus order was {observed}, expected {expected} "
-        f"(full tab sequence: {seq})"
+        f"login form focus order was {observed}, expected {expected} (full tab sequence: {seq})"
     )
 
 
@@ -151,8 +150,7 @@ def test_new_form_focus_order(alice_page: Page) -> None:
     seq = _tab_sequence(alice_page)
     observed = [t for t in seq if t in expected]
     assert observed == expected, (
-        f"new-task form focus order was {observed}, expected {expected} "
-        f"(full tab sequence: {seq})"
+        f"new-task form focus order was {observed}, expected {expected} (full tab sequence: {seq})"
     )
 
 
@@ -187,17 +185,15 @@ def test_row_actions_have_task_scoped_accessible_names(
         row = alice_page.get_by_test_id("task-row").filter(has_text=title)
         expect(row.get_by_test_id("advance-btn")).to_have_accessible_name(f"Advance {title}")
         expect(row.get_by_test_id("delete-btn")).to_have_accessible_name(f"Delete {title}")
-        expect(
-            alice_page.get_by_role("button", name=f"Advance {title}", exact=True)
-        ).to_have_count(1)
-        expect(
-            alice_page.get_by_role("button", name=f"Delete {title}", exact=True)
-        ).to_have_count(1)
+        expect(alice_page.get_by_role("button", name=f"Advance {title}", exact=True)).to_have_count(
+            1
+        )
+        expect(alice_page.get_by_role("button", name=f"Delete {title}", exact=True)).to_have_count(
+            1
+        )
 
 
-def test_row_action_testids_and_text_are_unchanged(
-    alice_api: ApiClient, alice_page: Page
-) -> None:
+def test_row_action_testids_and_text_are_unchanged(alice_api: ApiClient, alice_page: Page) -> None:
     alice_api.create_task("Unchanged task")
     alice_page.goto("/")
 
