@@ -93,7 +93,7 @@ jobs:
         # the QA charter — prose and permission flags are advisory, the diff
         # is not. Failure parks the ticket needs-human via Park on failure.
         run: |
-          BAD=$(git diff --name-only origin/main..HEAD -- .github/ ci/claude/ scripts/)
+          BAD=$(git diff --name-only origin/main...HEAD -- .github/ ci/claude/ scripts/)
           if [ -n "$BAD" ]; then
             echo "::error::agent commits touch pipeline-privileged paths (human-only):"
             echo "$BAD"
