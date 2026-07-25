@@ -51,6 +51,53 @@ def to_rfc3339_z(value: str) -> str:
     return dt.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+MONTHS = (
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
+)
+
+# Undated tasks sort after every dated one.
+UNDATED = datetime.max.replace(tzinfo=UTC)
+
+
+def parse_due_at(value: str | None) -> datetime | None:
+    """Parse an RFC3339 `due_at` into an aware UTC datetime, or None if absent/invalid."""
+    if not value:
+        return None
+    with suppress(ValueError):
+        dt = datetime.fromisoformat(value)
+        return dt if dt.tzinfo else dt.replace(tzinfo=UTC)
+    return None
+
+
+def format_due_at(value: datetime) -> str:
+    """Render an aware datetime as a human-readable UTC label, e.g. '25 Jul 2026, 12:34 UTC'."""
+    at = value.astimezone(UTC)
+    return f"{at.day:02d} {MONTHS[at.month - 1]} {at.year}, {at:%H:%M} UTC"
+
+
+def decorate_tasks(tasks: list[dict], now: datetime) -> list[dict]:
+    """Add `due_label`/`overdue` presentation keys and sort by urgency in place."""
+    decorated = []
+    for task in tasks:
+        due = parse_due_at(task.get("due_at"))
+        task["due_label"] = format_due_at(due) if due else None
+        task["overdue"] = due is not None and due < now
+        decorated.append((due or UNDATED, task.get("id") or 0, task))
+    decorated.sort(key=lambda item: item[:2])
+    return [task for _, _, task in decorated]
+
+
 def title_rejected(detail: object) -> bool:
     """True when a FastAPI validation `detail` rejects the `title` field."""
     if not isinstance(detail, list):
@@ -169,6 +216,8 @@ def create_app() -> FastAPI:
                 task_count += 1
         except httpx.HTTPError:
             api_error = True
+        now = datetime.now(UTC)
+        columns = {status: decorate_tasks(tasks, now) for status, tasks in columns.items()}
         return templates.TemplateResponse(
             request,
             "index.html",
