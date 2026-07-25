@@ -23,11 +23,13 @@
       <div class="actions">
         <form method="post" action="/tasks/{{ task.id }}/advance">
           <input type="hidden" name="csrf_token" value="{{ csrf }}">
-          <button type="submit" class="btn-advance" data-testid="advance-btn">Advance</button>
+          <button type="submit" class="btn-advance" data-testid="advance-btn"
+                  aria-label="Advance {{ task.title }}">Advance</button>
         </form>
         <form method="post" action="/tasks/{{ task.id }}/delete">
           <input type="hidden" name="csrf_token" value="{{ csrf }}">
-          <button type="submit" class="btn-delete" data-testid="delete-btn">Delete</button>
+          <button type="submit" class="btn-delete" data-testid="delete-btn"
+                  aria-label="Delete {{ task.title }}">Delete</button>
         </form>
       </div>
     </div>
