@@ -24,15 +24,16 @@ class PhaseSpec:
     max_turns: int
 
 
-# Same caps as the CI workflows: QA 50, dev 80, product/design 30.
+# Same caps as the CI workflows (scripts/run_agent.sh): QA 120, dev 120,
+# product/design 30.
 PHASES: tuple[PhaseSpec, ...] = (
     PhaseSpec("product", "stage:spec", "issue", "/product:spec", "product", "spec-output.json", 30),
     PhaseSpec(
         "design", "stage:design", "issue", "/design:design", "design", "design-output.json", 30
     ),
-    PhaseSpec("dev", "stage:dev", "issue", "/dev:implement", "dev", "dev-report.json", 80),
-    PhaseSpec("qa", "qa-ready", "pr", "/qa:qa-run", "qa", "qa-verdict.json", 50),
-    PhaseSpec("rework", "qa-failed", "pr", "/dev:rework", "dev", "dev-report.json", 80),
+    PhaseSpec("dev", "stage:dev", "issue", "/dev:implement", "dev", "dev-report.json", 120),
+    PhaseSpec("qa", "qa-ready", "pr", "/qa:qa-run", "qa", "qa-verdict.json", 120),
+    PhaseSpec("rework", "qa-failed", "pr", "/dev:rework", "dev", "dev-report.json", 120),
 )
 
 PHASES_BY_LABEL: dict[str, PhaseSpec] = {p.label: p for p in PHASES}

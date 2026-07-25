@@ -7,17 +7,33 @@ respx does not patch); the app's outbound httpx calls hit the respx mock.
 import json
 import re
 from collections.abc import Iterator
+from datetime import UTC, datetime, timedelta, timezone
 
 import httpx
 import pytest
 import respx
 from fastapi.testclient import TestClient
-from web.main import create_app, safe_next, title_rejected, to_rfc3339_z
+from web.main import (
+    create_app,
+    decorate_tasks,
+    format_due_at,
+    parse_due_at,
+    safe_next,
+    title_rejected,
+    to_rfc3339_z,
+)
 
 API = "http://localhost:8000"
 TOKEN = "tok-alice-0001"
 ME = {"id": 1, "email": "alice@example.com"}
 AUTH = f"Bearer {TOKEN}"
+
+
+def iso_in(seconds: float) -> str:
+    """RFC3339 UTC `Z` timestamp `seconds` from now — mirrors qa_helpers.rfc3339_in."""
+    at = datetime.now(UTC) + timedelta(seconds=seconds)
+    return at.replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
 
 SEEDED = [
     {
@@ -34,7 +50,7 @@ SEEDED = [
         "title": "Build the API",
         "description": "fastapi",
         "status": "doing",
-        "due_at": "2026-01-02T12:00:00Z",
+        "due_at": iso_in(3600),
         "reminder_status": "pending",
         "created_at": "2026-01-01T00:01:00Z",
     },
@@ -111,6 +127,49 @@ def test_title_rejected_helper() -> None:
     assert title_rejected({}) is False
     assert title_rejected("boom") is False
     assert title_rejected([{}]) is False
+
+
+def test_format_due_at_renders_human_label() -> None:
+    assert format_due_at(datetime(2026, 7, 25, 12, 34, 56, tzinfo=UTC)) == "25 Jul 2026, 12:34 UTC"
+    assert format_due_at(datetime(2026, 7, 5, 9, 0, tzinfo=UTC)) == "05 Jul 2026, 09:00 UTC"
+    plus_two = timezone(timedelta(hours=2))
+    assert format_due_at(datetime(2026, 7, 25, 14, 34, tzinfo=plus_two)) == "25 Jul 2026, 12:34 UTC"
+
+
+def test_parse_due_at_accepts_z_naive_and_rejects_garbage() -> None:
+    assert parse_due_at("2026-07-25T12:34:56Z") == datetime(2026, 7, 25, 12, 34, 56, tzinfo=UTC)
+    assert parse_due_at("2026-07-25T12:34:56") == datetime(2026, 7, 25, 12, 34, 56, tzinfo=UTC)
+    assert parse_due_at(None) is None
+    assert parse_due_at("") is None
+    assert parse_due_at("not-a-date") is None
+
+
+def test_decorate_tasks_orders_by_due_then_id() -> None:
+    now = datetime(2026, 7, 25, tzinfo=UTC)
+    tasks = [
+        {"id": 2, "due_at": None},
+        {"id": 1, "due_at": "2026-08-01T00:00:00Z"},
+        {"id": 3, "due_at": "2026-07-26T00:00:00Z"},
+        {"id": 4, "due_at": None},
+    ]
+
+    ordered = decorate_tasks(tasks, now)
+
+    assert [t["id"] for t in ordered] == [3, 1, 2, 4]
+
+
+def test_decorate_tasks_marks_overdue_only_for_past_due() -> None:
+    now = datetime(2026, 7, 25, 12, 0, 0, tzinfo=UTC)
+    tasks = [
+        {"id": 1, "due_at": "2026-07-25T11:59:59Z"},
+        {"id": 2, "due_at": "2026-07-25T12:00:01Z"},
+        {"id": 3, "due_at": None},
+        {"id": 4, "due_at": "2026-07-25T12:00:00Z"},
+    ]
+
+    ordered = {t["id"]: t["overdue"] for t in decorate_tasks(tasks, now)}
+
+    assert ordered == {1: True, 2: False, 3: False, 4: False}
 
 
 # --- auth gating -----------------------------------------------------------
@@ -300,7 +359,76 @@ def test_index_due_at_and_reminder_badge_render_only_when_set(client: TestClient
     body = client.get("/").text
 
     assert body.count('data-testid="due-at"') == 1
-    assert "2026-01-02T12:00:00Z" in body
+    assert format_due_at(parse_due_at(SEEDED[1]["due_at"])) in body
+    assert body.count('data-testid="reminder-badge"') == 1
+    assert 'data-testid="reminder-badge">pending<' in body
+
+
+@respx.mock
+def test_index_due_at_renders_human_label_not_raw_iso(client: TestClient) -> None:
+    login(client)
+    respx.get(f"{API}/api/auth/me").mock(return_value=httpx.Response(200, json=ME))
+    due_at = "2026-07-25T12:34:56Z"
+    task = {**SEEDED[0], "id": 10, "due_at": due_at}
+    respx.get(f"{API}/api/tasks").mock(return_value=httpx.Response(200, json=[task]))
+
+    body = client.get("/").text
+
+    assert "25 Jul 2026, 12:34 UTC" in body
+    assert due_at not in body
+
+
+@respx.mock
+def test_index_overdue_badge_only_for_past_due(client: TestClient) -> None:
+    login(client)
+    respx.get(f"{API}/api/auth/me").mock(return_value=httpx.Response(200, json=ME))
+    tasks = [
+        {**SEEDED[0], "id": 11, "title": "Past due", "due_at": "2020-01-01T00:00:00Z"},
+        {**SEEDED[0], "id": 12, "title": "Future due", "due_at": iso_in(3600)},
+        {**SEEDED[0], "id": 13, "title": "No due date", "due_at": None},
+    ]
+    respx.get(f"{API}/api/tasks").mock(return_value=httpx.Response(200, json=tasks))
+
+    body = client.get("/").text
+
+    assert body.count('data-testid="overdue-badge"') == 1
+    start = body.index('data-task-id="11"')
+    next_row = body.index('data-testid="task-row"', start)
+    assert 'data-testid="overdue-badge"' in body[start:next_row]
+
+
+@respx.mock
+def test_index_orders_column_by_due_then_id(client: TestClient) -> None:
+    login(client)
+    respx.get(f"{API}/api/auth/me").mock(return_value=httpx.Response(200, json=ME))
+    tasks = [
+        {**SEEDED[0], "id": 21, "title": "A", "due_at": iso_in(5 * 86400), "status": "todo"},
+        {**SEEDED[0], "id": 22, "title": "B", "due_at": None, "status": "todo"},
+        {**SEEDED[0], "id": 23, "title": "C", "due_at": iso_in(86400), "status": "todo"},
+    ]
+    respx.get(f"{API}/api/tasks").mock(return_value=httpx.Response(200, json=tasks))
+
+    body = client.get("/").text
+
+    assert body.index(">C<") < body.index(">A<") < body.index(">B<")
+
+
+@respx.mock
+def test_index_overdue_and_reminder_badges_are_independent(client: TestClient) -> None:
+    login(client)
+    respx.get(f"{API}/api/auth/me").mock(return_value=httpx.Response(200, json=ME))
+    task = {
+        **SEEDED[0],
+        "id": 31,
+        "title": "Overdue with reminder",
+        "due_at": "2020-01-01T00:00:00Z",
+        "reminder_status": "pending",
+    }
+    respx.get(f"{API}/api/tasks").mock(return_value=httpx.Response(200, json=[task]))
+
+    body = client.get("/").text
+
+    assert body.count('data-testid="overdue-badge"') == 1
     assert body.count('data-testid="reminder-badge"') == 1
     assert 'data-testid="reminder-badge">pending<' in body
 

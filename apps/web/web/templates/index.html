@@ -11,11 +11,14 @@
   <section class="column" id="column-{{ status }}">
     <h2>{{ status }}</h2>
     {% for task in columns[status] %}
-    <div class="task" data-testid="task-row" data-task-id="{{ task.id }}">
+    <div class="task{% if task.overdue %} overdue{% endif %}" data-testid="task-row" data-task-id="{{ task.id }}">
       <div class="title" data-testid="task-title">{{ task.title }}</div>
       <div class="status" data-testid="task-status">{{ task.status }}</div>
-      {% if task.due_at %}
-      <div class="due" data-testid="due-at">{{ task.due_at }}</div>
+      {% if task.due_label %}
+      <div class="due" data-testid="due-at">{{ task.due_label }}</div>
+      {% endif %}
+      {% if task.overdue %}
+      <span class="badge-overdue" data-testid="overdue-badge">Overdue</span>
       {% endif %}
       {% if task.reminder_status and task.reminder_status != "none" %}
       <span class="badge" data-testid="reminder-badge">{{ task.reminder_status }}</span>

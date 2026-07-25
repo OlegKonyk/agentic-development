@@ -45,8 +45,14 @@ Tasks (require `Authorization: Bearer <token>`, else 401; scoped to owner;
 404 for other users' task ids — no existence leak): same CRUD surface as v1
 plus `due_at` (optional RFC3339, must be future on create/update else 422) and
 read-only `reminder_status`. A whitespace-only `title` on create or update →
-422, same validation-error shape as `due_at`. All v1 contract fixes hold (RFC3339 `Z`
-timestamps, documented 400/404, no nullable query params); TaskId path bound is
+422, same validation-error shape as `due_at`. A JSON string carrying an
+unpaired UTF-16 surrogate or NUL (`\u0000`) — valid JSON, unstorable in
+Postgres — → 422 on every model-validated body route (login and tasks); the
+raw-body webhook route neutralizes them instead (strict `json.loads` → 400,
+stored payload is `decode(errors="replace")` text). 422 bodies are themselves
+safe to serialize: the echoed offending input — including undecodable raw
+bytes from non-JSON content types — is sanitized. All v1
+contract fixes hold (RFC3339 `Z` timestamps, documented 400/404, no nullable query params); TaskId path bound is
 ≤ 2^31-1, matching the INTEGER column (larger ids overflowed asyncpg → 500,
 found by contract fuzzing).
 
@@ -91,13 +97,19 @@ Routes: `GET /login` (form: `email-input`, `password-input`, `submit-login`,
 error banner `login-error`), `POST /login` (CSRF-checked; success → 303 `/`),
 `POST /logout` (`logout-btn`) → API logout + clear cookie + 303 `/login`,
 `GET /` board (v1 testids unchanged: `task-list`, `task-row`, `task-title`,
-`task-status`, `new-task-link`, `advance-btn`, `delete-btn`, `task-count`; new:
-`user-email`, `due-at` per row, `reminder-badge` when status ≠ none); row
-actions carry task-scoped accessible names (`aria-label="Advance <title>"` /
-`"Delete <title>"`), testids and visible text unchanged,
-`GET|POST /new` (adds optional `due-at-input`), advance/delete as v1,
-`GET /healthz`. All forms carry hidden `csrf_token` (session-stored, compared
-on POST; mismatch → 403).
+`task-status`, `new-task-link`, `advance-btn`, `delete-btn`, `task-count`;
+`user-email`; `due-at` per row now renders a human-readable UTC label, e.g.
+`25 Jul 2026, 12:34 UTC`, instead of the raw RFC3339 timestamp, and is present
+only when the task has a `due_at`; `reminder-badge` when status ≠ none; new
+`overdue-badge` per row, present only when `due_at` is strictly in the past
+(absent from the DOM otherwise, not merely hidden); within each column, rows
+are ordered by soonest `due_at` first, undated tasks last, ascending task id
+as tie-break — `GET /api/tasks` ordering and payload are unchanged, this is a
+web-layer-only concern); row actions carry task-scoped accessible names
+(`aria-label="Advance <title>"` / `"Delete <title>"`), testids and visible
+text unchanged, `GET|POST /new` (adds optional `due-at-input`),
+advance/delete as v1, `GET /healthz`. All forms carry hidden `csrf_token`
+(session-stored, compared on POST; mismatch → 403).
 
 ## Vendor contract (what WireMock simulates)
 

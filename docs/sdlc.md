@@ -114,6 +114,14 @@ stack); the dev DB is for the agent's own verification loop.
 
 Two tiers, one job (`phase-qa.yml`):
 
+The job checks out the PR's merge ref and first asserts it is fresh: GitHub
+computes `refs/pull/N/merge` lazily and a label event does not refresh it, so
+after `main` advances a run could test a stale base and re-find bugs `main`
+already fixed. If the merge commit's base parent is not the live `main` tip,
+the job fails before spending anything — the `always()` transition parks the
+PR `needs-human` with a comment telling the human to update the branch and
+re-add `qa-ready`.
+
 **Tier 1 — deterministic (the hard gate).**
 Boot the stack (`docker compose up --wait` for api+web, `wrangler dev` for the
 gateway, health-gated with curl retries), seed data (`python -m app.seed`), then:
@@ -158,7 +166,12 @@ without `repro_steps` is downgraded to `blocked` by the parsing step.
 Branch protection (ruleset on `main`) requires contexts `ci` and
 `qa/agent-verdict`, so the merge button is the human gate over machine-verified
 state. A push after QA ran leaves the new head SHA without a status — merge
-stays blocked until QA re-runs (fail-safe by construction).
+stays blocked until QA re-runs (fail-safe by construction). The ruleset also
+grants repository admins an always-on bypass: the break-glass path for
+orchestrator-authored maintenance PRs (pipeline changes, main-branch bugfixes),
+which by definition carry no `qa/agent-verdict`. A bypass merge is a deliberate
+human governance action outside the machine gate — agents hold no identity that
+can use it.
 
 ### Agent invocation profile
 
@@ -169,9 +182,9 @@ invocation is defined:
 claude -p "<skill invocation + context>" \
   --plugin-dir ci/claude/plugins/<phase> \
   --settings ci/claude/settings/ci-settings.json \
-  --permission-mode acceptEdits \
+  --permission-mode dontAsk \
   --allowedTools <phase allowlist> \
-  --model <phase model> --max-turns <phase cap> \
+  --model <phase model> --max-turns <phase cap> --max-budget-usd <phase cap> \
   --mcp-config <phase mcp, if any> --strict-mcp-config \
   --output-format json --json-schema "$(cat ci/claude/schemas/<phase>.json)" \
   --no-session-persistence
@@ -191,8 +204,12 @@ claude -p "<skill invocation + context>" \
 
 ### Cost and runaway controls
 
-- `--max-turns` per phase (QA 50, dev 80, product/design 30) + job
-  `timeout-minutes` + `concurrency: <phase>-<ticket#>` groups.
+- `--max-turns` per phase (QA 120, dev 120, product/design 30) and
+  `--max-budget-usd` (QA 8, dev 12, product/design 3) + job `timeout-minutes` +
+  `concurrency: <phase>-<ticket#>` groups. On `error_max_turns`, read
+  `permission_denials` first: zero denials with steady progress means the
+  phase's scope outgrew the cap (raise it); repeated denials mean a stuck
+  agent (fix the sandbox, not the ceiling).
 - Loop guard threshold on timeline label events; max 3 QA↔rework cycles before
   `needs-human`.
 - Models per phase (aliases, overridable via workflow env): product/design
@@ -208,6 +225,21 @@ claude -p "<skill invocation + context>" \
 - Agents write only to `feature/*` branches; `main` is protected by the ruleset;
   the App has no `workflows: write` (agents cannot edit pipeline definitions —
   workflow file changes are human-only by construction).
+- `ci/claude/` (agent charters) and `scripts/` (pipeline glue) are pipeline-
+  privileged but have no GitHub-side write gate (`.github/workflows/` does —
+  the App lacks `workflows: write`), so layered controls enforce them:
+  repo-relative `Edit(...)`/`Write(...)` deny rules in `ci-settings.json`
+  steer the agent (a `//`-prefixed pattern bug once left these rules dead, and
+  the rework agent edited the QA charter on PR #13), and a deterministic check
+  before every dev/rework push fails the job — and parks the ticket
+  `needs-human` — if a new agent commit touches those paths (merge-base diff)
+  or the working tree under them is dirty (agent child processes can write
+  files no commit records, and later steps execute these scripts with the App
+  token). Checkouts use `persist-credentials: false`, so the agent step holds
+  no token; only the orchestrator's own push steps authenticate. When a design
+  mandates a privileged edit (e.g. a QA-charter change), the human
+  orchestrator applies it directly; the rework skill tells the agent to route
+  such findings through `concerns` instead of fixing them.
 
 ### Issue → PR resolution
 
