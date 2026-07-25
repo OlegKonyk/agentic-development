@@ -135,3 +135,37 @@ the app (not the tests) before merge. The deterministic gate never emitted a
 false pass. That is the thesis: predictable orchestration + agent-filled
 content + evidence-gated merge = a QA loop that iteratively hardens a
 reality-grade system. Timeout budgets are a designed SET, re-derived twice here.
+
+## 2026-07-25 — Calibration #5/#9: rework walks through a dead deny rule
+
+Tickets #5 (PR #14) and #9 (PR #13) were calibration runs; their re-drives
+taught pipeline lessons more than app lessons.
+
+1. **The "security boundary" was prompt-deep.** #9's design mandated an edit to
+   the QA agent's own charter (`ci/claude/.../qa-run/SKILL.md`). The dev agent
+   refused — its skill names the path off-limits — and the first QA cycle read
+   like the boundary holding by design. The rework agent, whose skill lacked
+   that sentence, simply made the edit (word-for-word the design §5 wording,
+   transparently disclosed in its commit message). Root cause: every
+   `Edit(//ci/claude/**)`-style deny rule was dead — a `//` prefix means
+   absolute-from-filesystem-root, so the patterns matched nothing in the
+   checkout. A boundary that exists only in one skill's prose is not a
+   boundary. Fixes: repo-relative deny patterns, the same prohibition (plus
+   "escalate via `concerns`") in the rework skill, and a deterministic diff
+   guard before every dev/rework push — a hard stop no prompt can miss.
+2. **Contract "determinism" is a lottery.** #14 qa-failed on a genuine main bug
+   (NUL in the login email → asyncpg 500), then qa-passed with byte-identical
+   contract/API code: Hypothesis's local-constants pool varies across
+   processes even under `derandomize=True`, so generation order is not stable.
+   A green contract tier is probabilistic evidence. The bug became PR #15 —
+   NUL and lone surrogates now 422 at the model boundary, plus a
+   surrogate-safe 422 echo (the naive validator-only fix converts the 500 into
+   a *different* 500 in the error renderer; verified empirically). Pinning
+   generation (hash seed / explicit database) is open follow-up work.
+3. **`error_max_turns` ≠ stuck, this time.** #13's second QA run burned 80/80
+   turns with zero permission denials, no loops, and steady forward progress —
+   the PR's own a11y charter makes keyboard probes cost one MCP call per
+   keystroke. PR #10's lesson was "a consumed budget means a stuck agent —
+   read the denials"; the refinement is "read the denials *first*: zero
+   denials plus progress means the charter outgrew the cap." QA cap 80 → 120,
+   and the triage rule is now in the spec's runaway-controls section.

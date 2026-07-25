@@ -87,6 +87,19 @@ jobs:
           echo "agent made $COUNT commits"
           [ "$COUNT" -gt 0 ] || { echo "::error::dev agent produced no commits"; exit 1; }
 
+      - name: Enforce privileged-path boundary
+        # Deny rules steer the agent; this diff check is the hard stop. A
+        # settings pattern bug once left the deny rules dead and rework edited
+        # the QA charter — prose and permission flags are advisory, the diff
+        # is not. Failure parks the ticket needs-human via Park on failure.
+        run: |
+          BAD=$(git diff --name-only origin/main..HEAD -- .github/ ci/claude/ scripts/)
+          if [ -n "$BAD" ]; then
+            echo "::error::agent commits touch pipeline-privileged paths (human-only):"
+            echo "$BAD"
+            exit 1
+          fi
+
       - name: Push and open PR (labeled qa-ready)
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
@@ -211,6 +224,17 @@ jobs:
           git config user.email "sdlc-orchestrator[bot]@users.noreply.github.com"
           npm install -g @anthropic-ai/claude-code@$CLAUDE_CODE_VERSION
           scripts/run_agent.sh dev "/dev:rework context"
+
+      - name: Enforce privileged-path boundary
+        # Same hard stop as the implement job, over this run's new commits only
+        # (privileged commits already on the branch are the orchestrator's).
+        run: |
+          BAD=$(git diff --name-only "${{ github.event.pull_request.head.sha }}"..HEAD -- .github/ ci/claude/ scripts/)
+          if [ -n "$BAD" ]; then
+            echo "::error::agent commits touch pipeline-privileged paths (human-only):"
+            echo "$BAD"
+            exit 1
+          fi
 
       - name: Require commits and push
         run: |

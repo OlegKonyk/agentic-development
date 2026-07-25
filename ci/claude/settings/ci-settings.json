@@ -16,9 +16,9 @@
       "Bash(npx wrangler deploy *)",
       "Bash(rm -rf *)",
       "Bash(sudo *)",
-      "Edit(//.github/workflows/**)",
-      "Edit(//ci/claude/**)",
-      "Edit(//scripts/**)",
+      "Edit(.github/**)",
+      "Edit(ci/claude/**)",
+      "Edit(scripts/**)",
       "WebFetch",
       "WebSearch"
     ]

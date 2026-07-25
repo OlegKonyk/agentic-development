@@ -23,7 +23,9 @@ MCP_CONFIG=""
 DISALLOWED=""
 # Turn/budget caps scale with phase scope. QA grew with the app: verifying auth +
 # reminders + webhooks + chaos across ~8 ACs, plus exploration and fault-injection,
-# overran a 50-turn budget (error_max_turns on the v2 platform). --max-budget-usd
+# overran a 50-turn budget (error_max_turns on the v2 platform), and the
+# accessibility charter (keyboard-only probes cost one MCP call per keystroke)
+# overran 80 with zero denials and steady progress (PR #13). --max-budget-usd
 # is the hard runaway guard; --max-turns the soft one.
 case "$PHASE" in
   product)
@@ -42,7 +44,7 @@ case "$PHASE" in
     TOOLS="Read,Glob,Grep,Edit,Write,Bash(uv run *),Bash(uv sync *),Bash(git add *),Bash(git commit *),Bash(git status),Bash(git diff *),Bash(git log *),Bash(mkdir *),Bash(curl *),Bash(docker compose exec *)"
     ;;
   qa)
-    MODEL="${QA_MODEL:-sonnet}"; MAX_TURNS="${QA_MAX_TURNS:-80}"; MAX_BUDGET="${QA_BUDGET:-8}"
+    MODEL="${QA_MODEL:-sonnet}"; MAX_TURNS="${QA_MAX_TURNS:-120}"; MAX_BUDGET="${QA_BUDGET:-8}"
     SCHEMA="qa-verdict.json"
     # Broad Bash, guarded by the deny-list in ci-settings.json (no push/merge/
     # deploy/rm -rf/sudo, no edits to pipeline files) on a secret-less runner off
