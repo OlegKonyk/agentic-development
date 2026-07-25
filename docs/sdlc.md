@@ -114,6 +114,14 @@ stack); the dev DB is for the agent's own verification loop.
 
 Two tiers, one job (`phase-qa.yml`):
 
+The job checks out the PR's merge ref and first asserts it is fresh: GitHub
+computes `refs/pull/N/merge` lazily and a label event does not refresh it, so
+after `main` advances a run could test a stale base and re-find bugs `main`
+already fixed. If the merge commit's base parent is not the live `main` tip,
+the job fails before spending anything — the `always()` transition parks the
+PR `needs-human` with a comment telling the human to update the branch and
+re-add `qa-ready`.
+
 **Tier 1 — deterministic (the hard gate).**
 Boot the stack (`docker compose up --wait` for api+web, `wrangler dev` for the
 gateway, health-gated with curl retries), seed data (`python -m app.seed`), then:
