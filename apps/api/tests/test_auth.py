@@ -2,8 +2,10 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from app import db
+from app.models import LoginRequest
 from app.models import Session as AuthSession
 from httpx import AsyncClient
+from pydantic import ValidationError
 from sqlalchemy import update
 
 from tests.conftest import ALICE, PASSWORDS, bearer, login
@@ -90,15 +92,41 @@ async def test_sessions_are_independent(client: AsyncClient) -> None:
     assert (await client.get("/api/auth/me", headers=bearer(second))).status_code == 200
 
 
-async def test_login_lone_surrogate_password_is_401_not_500(client: AsyncClient) -> None:
-    """Regression (agent QA + Schemathesis, PR #10 cycle 6): a lone UTF-16
-    surrogate is valid JSON but cannot UTF-8-encode; it must read as invalid
-    credentials, not crash argon2 into an unauthenticated 500."""
-    body = '{"email": "alice@example.com", "password": "\\ud800"}'
+@pytest.mark.parametrize(
+    ("body", "field"),
+    [
+        ('{"email": "\\ud800", "password": "x"}', "email"),
+        ('{"email": "alice@example.com", "password": "\\ud800"}', "password"),
+        ('{"email": "a\\u0000b", "password": "x"}', "email"),
+    ],
+    ids=["surrogate-email", "surrogate-password", "nul-email"],
+)
+async def test_login_unstorable_strings_are_422_not_500(
+    client: AsyncClient, body: str, field: str
+) -> None:
+    """Regression (Schemathesis, PR #10 cycle 6 and PR #14): lone UTF-16
+    surrogates and NUL are valid JSON but cannot reach Postgres — surrogates
+    fail UTF-8 encoding, NUL is rejected by the text codec. The first fix
+    guarded only the password field, so a surrogate or NUL email still 500'd in
+    the driver. Parsing resp.json() also pins the echo path: FastAPI's 422 body
+    reflects the offending input, which itself used to crash serialization."""
     resp = await client.post(
         "/api/auth/login",
         content=body.encode("utf-8"),
         headers={"Content-Type": "application/json"},
     )
-    assert resp.status_code == 401
-    assert resp.json() == {"detail": "Invalid credentials"}
+    assert resp.status_code == 422
+    detail = resp.json()["detail"]
+    assert detail[0]["loc"] == ["body", field]
+    assert detail[0]["type"] == "value_error"
+
+
+def test_login_request_rejects_unstorable_strings() -> None:
+    # DB-free: pins the model boundary itself, runs even with Postgres down.
+    for payload in (
+        {"email": "\ud800", "password": "x"},
+        {"email": "a@b.c", "password": "\ud800"},
+        {"email": "a\x00b", "password": "x"},
+    ):
+        with pytest.raises(ValidationError):
+            LoginRequest.model_validate(payload)

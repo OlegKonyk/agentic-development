@@ -6,6 +6,8 @@ from contextlib import asynccontextmanager
 from typing import Annotated
 
 from fastapi import APIRouter, FastAPI, HTTPException, Path, Query
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic.json_schema import SkipJsonSchema
 from sqlalchemy import delete
@@ -166,6 +168,21 @@ class RequestDeadlineMiddleware:
             await send({"type": "http.response.body", "body": body})  # type: ignore[operator]
 
 
+def _surrogate_safe(value: object) -> object:
+    """Strip unpaired surrogates so a value survives json.dumps().encode().
+
+    FastAPI's 422 body echoes the offending input; a lone surrogate in that echo
+    crashes JSONResponse.render into a 500 — the exact failure the 422 reports.
+    """
+    if isinstance(value, str):
+        return value.encode("utf-8", errors="replace").decode("utf-8")
+    if isinstance(value, list):
+        return [_surrogate_safe(item) for item in value]
+    if isinstance(value, dict):
+        return {_surrogate_safe(key): _surrogate_safe(item) for key, item in value.items()}
+    return value
+
+
 def create_app() -> FastAPI:
     application = FastAPI(title="Taskboard API", lifespan=lifespan)
     application.add_middleware(
@@ -176,6 +193,15 @@ def create_app() -> FastAPI:
     @application.exception_handler(db.DatabaseUnavailableError)
     async def on_db_unavailable(request: object, exc: db.DatabaseUnavailableError) -> JSONResponse:
         return JSONResponse(status_code=503, content={"detail": "database unavailable"})
+
+    @application.exception_handler(RequestValidationError)
+    async def on_validation_error(request: object, exc: RequestValidationError) -> JSONResponse:
+        # jsonable_encoder first (it stringifies non-serializable ctx values),
+        # then sanitize: the echoed input may hold the surrogates being rejected.
+        return JSONResponse(
+            status_code=422,
+            content={"detail": _surrogate_safe(jsonable_encoder(exc.errors()))},
+        )
 
     @application.get("/healthz")
     def healthz() -> dict[str, str]:

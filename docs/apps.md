@@ -45,8 +45,11 @@ Tasks (require `Authorization: Bearer <token>`, else 401; scoped to owner;
 404 for other users' task ids — no existence leak): same CRUD surface as v1
 plus `due_at` (optional RFC3339, must be future on create/update else 422) and
 read-only `reminder_status`. A whitespace-only `title` on create or update →
-422, same validation-error shape as `due_at`. All v1 contract fixes hold (RFC3339 `Z`
-timestamps, documented 400/404, no nullable query params); TaskId path bound is
+422, same validation-error shape as `due_at`. A JSON string carrying an
+unpaired UTF-16 surrogate or NUL (`\u0000`) — valid JSON, unstorable in
+Postgres — → 422 on every body-accepting route, login included; 422 bodies are
+themselves safe to serialize (the echoed offending input is sanitized). All v1
+contract fixes hold (RFC3339 `Z` timestamps, documented 400/404, no nullable query params); TaskId path bound is
 ≤ 2^31-1, matching the INTEGER column (larger ids overflowed asyncpg → 500,
 found by contract fuzzing).
 
