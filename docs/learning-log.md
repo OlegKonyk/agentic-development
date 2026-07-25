@@ -180,3 +180,16 @@ failure as out-of-scope, and the deterministic tier-1 rule still refused the
 pass, exactly as designed. Fix: phase-qa now asserts the merge commit's base
 parent equals the live main tip before spending anything, parking with a
 "update the branch, re-add qa-ready" comment otherwise.
+
+Closing addendum: both calibration tickets shipped the same day. #5 (PR #14)
+merged through the normal gate after one clean re-drive on a fresh tree; #9
+(PR #13) merged after its QA run verified all 10 ACs in 
+evidence-backed detail — including the mutation-coupling probe (AC-8) and a
+direct read of its own new charter (AC-9) — and the QA agent flagged the PR
+body's stale "edit was not made" claim as a finding, which is exactly the
+audit-the-claims behavior the pipeline exists for. One more self-inflicted
+lesson en route: the freshness assert (#17) failed closed on its own first
+run — rev-parse can't resolve parents in a depth-1 checkout — and was fixed
+empirically against a real shallow merge-ref fetch (#18). Verify enforcement
+code the way we verify app code: against the environment it runs in, not the
+one we reason about.
