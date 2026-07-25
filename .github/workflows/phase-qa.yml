@@ -60,7 +60,12 @@ jobs:
         # this way). The merge commit object names its base parent even in a
         # shallow clone; compare it to the live main tip and park if stale.
         run: |
-          BASE_PARENT=$(git rev-parse HEAD^1)
+          # cat-file, not rev-parse: the checkout is depth-1, so the parent
+          # OBJECT is absent and rev-parse refuses to resolve HEAD^1; the
+          # commit object itself still names its parents (verified against a
+          # depth-1 fetch of refs/pull/N/merge).
+          BASE_PARENT=$(git cat-file -p HEAD | awk '/^parent /{print $2; exit}')
+          [ -n "$BASE_PARENT" ] || { echo "::error::cannot read merge-ref base parent"; exit 1; }
           MAIN_TIP=$(git ls-remote origin -h refs/heads/main | cut -f1)
           if [ "$BASE_PARENT" != "$MAIN_TIP" ]; then
             echo "::error::stale merge ref: base parent $BASE_PARENT != main tip $MAIN_TIP"
