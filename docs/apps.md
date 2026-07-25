@@ -91,11 +91,17 @@ Routes: `GET /login` (form: `email-input`, `password-input`, `submit-login`,
 error banner `login-error`), `POST /login` (CSRF-checked; success → 303 `/`),
 `POST /logout` (`logout-btn`) → API logout + clear cookie + 303 `/login`,
 `GET /` board (v1 testids unchanged: `task-list`, `task-row`, `task-title`,
-`task-status`, `new-task-link`, `advance-btn`, `delete-btn`, `task-count`; new:
-`user-email`, `due-at` per row, `reminder-badge` when status ≠ none),
-`GET|POST /new` (adds optional `due-at-input`), advance/delete as v1,
-`GET /healthz`. All forms carry hidden `csrf_token` (session-stored, compared
-on POST; mismatch → 403).
+`task-status`, `new-task-link`, `advance-btn`, `delete-btn`, `task-count`;
+`user-email`; `due-at` per row now renders a human-readable UTC label, e.g.
+`25 Jul 2026, 12:34 UTC`, instead of the raw RFC3339 timestamp, and is present
+only when the task has a `due_at`; `reminder-badge` when status ≠ none; new
+`overdue-badge` per row, present only when `due_at` is strictly in the past
+(absent from the DOM otherwise, not merely hidden); within each column, rows
+are ordered by soonest `due_at` first, undated tasks last, ascending task id
+as tie-break — `GET /api/tasks` ordering and payload are unchanged, this is a
+web-layer-only concern), `GET|POST /new` (adds optional `due-at-input`),
+advance/delete as v1, `GET /healthz`. All forms carry hidden `csrf_token`
+(session-stored, compared on POST; mismatch → 403).
 
 ## Vendor contract (what WireMock simulates)
 
