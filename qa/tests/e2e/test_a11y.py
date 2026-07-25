@@ -24,7 +24,13 @@ def _form_controls(page: Page, form_selector: str) -> list[str]:
 
 
 def _tab_sequence(page: Page, max_tabs: int = 20) -> list[str]:
-    """Tab-driven focus trace via `document.activeElement`."""
+    """Tab-driven focus trace via `document.activeElement`.
+
+    Compound controls (e.g. `datetime-local`) keep the same element focused
+    across several Tab presses while the browser moves between the control's
+    internal date/time segments, so repeats of the immediately preceding
+    entry are collapsed — they are not a new control being reached.
+    """
     probe = (
         "() => { const el = document.activeElement; "
         "if (!el || el === document.body || el === document.documentElement) return null; "
@@ -36,10 +42,48 @@ def _tab_sequence(page: Page, max_tabs: int = 20) -> list[str]:
         value = page.evaluate(probe)
         if value is None:
             break
+        if seq and value == seq[-1]:
+            continue
         if seq and value == seq[0]:
             break
         seq.append(value)
     return seq
+
+
+class _FakeKeyboard:
+    def press(self, key: str) -> None:
+        pass
+
+
+class _FakeFocusPage:
+    """Stands in for a Page in `_tab_sequence`: only `keyboard.press` and
+    `evaluate` are called, so a real browser isn't needed to test the
+    dedup/wrap-around logic."""
+
+    def __init__(self, focus_values: list[str | None]) -> None:
+        self.keyboard = _FakeKeyboard()
+        self._values = iter(focus_values)
+
+    def evaluate(self, _probe: str) -> str | None:
+        return next(self._values, None)
+
+
+def test_tab_sequence_collapses_repeats_on_same_compound_control() -> None:
+    # A datetime-local input keeps document.activeElement on itself while Tab
+    # moves between its internal segments — those repeats aren't new controls.
+    focus_values = [
+        "title-input",
+        "description-input",
+        "due-at-input",
+        "due-at-input",
+        "due-at-input",
+        "submit-task",
+    ]
+    page = _FakeFocusPage(focus_values)
+
+    seq = _tab_sequence(page, max_tabs=len(focus_values))
+
+    assert seq == ["title-input", "description-input", "due-at-input", "submit-task"]
 
 
 def test_login_form_controls_have_accessible_names(page: Page) -> None:
