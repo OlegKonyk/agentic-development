@@ -102,6 +102,14 @@ acceptance criteria `AC-1..AC-n`) are posted as issue comments and appended to
 the issue body between HTML marker comments, so later phases read them
 deterministically with `gh issue view --json body`.
 
+The dev and rework phases boot `db` + `redis` (`docker compose up -d --wait db
+redis`) before the agent runs, with `DATABASE_URL`/`REDIS_URL`/`APP_ENV=test` in
+the agent's env, so the dev agent can execute DB-backed tests (`uv run pytest
+apps/api`) rather than only pydantic-level smoke checks. This closed a gap found
+running ticket #6: DB-touching code could not be self-verified in the dev phase
+and leaned entirely on QA. QA remains the authority (it boots the full 8-service
+stack); the dev DB is for the agent's own verification loop.
+
 ### The QA phase in detail (the centerpiece)
 
 Two tiers, one job (`phase-qa.yml`):

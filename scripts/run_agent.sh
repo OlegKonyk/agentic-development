@@ -39,7 +39,7 @@ case "$PHASE" in
   dev)
     MODEL="${DEV_MODEL:-sonnet}"; MAX_TURNS=120; MAX_BUDGET="${DEV_BUDGET:-12}"
     SCHEMA="dev-report.json"
-    TOOLS="Read,Glob,Grep,Edit,Write,Bash(uv run *),Bash(uv sync *),Bash(git add *),Bash(git commit *),Bash(git status),Bash(git diff *),Bash(git log *),Bash(mkdir *)"
+    TOOLS="Read,Glob,Grep,Edit,Write,Bash(uv run *),Bash(uv sync *),Bash(git add *),Bash(git commit *),Bash(git status),Bash(git diff *),Bash(git log *),Bash(mkdir *),Bash(curl *),Bash(docker compose exec *)"
     ;;
   qa)
     MODEL="${QA_MODEL:-sonnet}"; MAX_TURNS="${QA_MAX_TURNS:-80}"; MAX_BUDGET="${QA_BUDGET:-8}"

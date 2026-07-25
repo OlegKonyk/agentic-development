@@ -68,9 +68,15 @@ jobs:
       - name: Install workspace (agent verifies with real test runs)
         run: uv sync --all-packages
 
+      - name: Boot db + redis (so the dev agent can run DB-backed tests)
+        run: docker compose up -d --wait --wait-timeout 90 db redis
+
       - name: Dev agent
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          DATABASE_URL: postgresql+asyncpg://taskboard:taskboard@localhost:5432/taskboard_test
+          REDIS_URL: redis://localhost:6379/0
+          APP_ENV: test
         run: |
           npm install -g @anthropic-ai/claude-code@$CLAUDE_CODE_VERSION
           scripts/run_agent.sh dev "/dev:implement context/issue.json"
@@ -191,9 +197,15 @@ jobs:
       - name: Install workspace
         run: uv sync --all-packages
 
+      - name: Boot db + redis (so the rework agent can run DB-backed tests)
+        run: docker compose up -d --wait --wait-timeout 90 db redis
+
       - name: Rework agent
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          DATABASE_URL: postgresql+asyncpg://taskboard:taskboard@localhost:5432/taskboard_test
+          REDIS_URL: redis://localhost:6379/0
+          APP_ENV: test
         run: |
           git config user.name "sdlc-orchestrator[bot]"
           git config user.email "sdlc-orchestrator[bot]@users.noreply.github.com"
