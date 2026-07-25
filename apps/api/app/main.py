@@ -169,13 +169,17 @@ class RequestDeadlineMiddleware:
 
 
 def _surrogate_safe(value: object) -> object:
-    """Strip unpaired surrogates so a value survives json.dumps().encode().
+    """Make echoed request input survive json.dumps().encode().
 
     FastAPI's 422 body echoes the offending input; a lone surrogate in that echo
-    crashes JSONResponse.render into a 500 — the exact failure the 422 reports.
+    crashes JSONResponse.render into a 500 — the exact failure the 422 reports —
+    and raw bytes input (non-JSON content types) crashes jsonable_encoder's
+    strict decode the same way, so this must run before the encoder.
     """
     if isinstance(value, str):
         return value.encode("utf-8", errors="replace").decode("utf-8")
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
     if isinstance(value, list):
         return [_surrogate_safe(item) for item in value]
     if isinstance(value, dict):
@@ -196,11 +200,11 @@ def create_app() -> FastAPI:
 
     @application.exception_handler(RequestValidationError)
     async def on_validation_error(request: object, exc: RequestValidationError) -> JSONResponse:
-        # jsonable_encoder first (it stringifies non-serializable ctx values),
-        # then sanitize: the echoed input may hold the surrogates being rejected.
+        # Sanitize first — jsonable_encoder itself crashes on undecodable bytes
+        # input — then encode the leftovers (tuples, ctx exceptions) for JSON.
         return JSONResponse(
             status_code=422,
-            content={"detail": _surrogate_safe(jsonable_encoder(exc.errors()))},
+            content={"detail": jsonable_encoder(_surrogate_safe(exc.errors()))},
         )
 
     @application.get("/healthz")

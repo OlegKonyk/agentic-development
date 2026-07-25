@@ -121,6 +121,19 @@ async def test_login_unstorable_strings_are_422_not_500(
     assert detail[0]["type"] == "value_error"
 
 
+async def test_login_undecodable_bytes_body_is_422_not_500(client: AsyncClient) -> None:
+    # Non-JSON content type: FastAPI hands the raw bytes to pydantic, and the
+    # 422 echo then contains bytes that cannot strict-decode — jsonable_encoder
+    # 500'd on them until the handler sanitized before encoding.
+    resp = await client.post(
+        "/api/auth/login",
+        content=b"\xff\xfe",
+        headers={"Content-Type": "text/plain"},
+    )
+    assert resp.status_code == 422
+    assert resp.json()["detail"]
+
+
 def test_login_request_rejects_unstorable_strings() -> None:
     # DB-free: pins the model boundary itself, runs even with Postgres down.
     for payload in (

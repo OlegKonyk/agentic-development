@@ -47,8 +47,11 @@ plus `due_at` (optional RFC3339, must be future on create/update else 422) and
 read-only `reminder_status`. A whitespace-only `title` on create or update →
 422, same validation-error shape as `due_at`. A JSON string carrying an
 unpaired UTF-16 surrogate or NUL (`\u0000`) — valid JSON, unstorable in
-Postgres — → 422 on every body-accepting route, login included; 422 bodies are
-themselves safe to serialize (the echoed offending input is sanitized). All v1
+Postgres — → 422 on every model-validated body route (login and tasks); the
+raw-body webhook route neutralizes them instead (strict `json.loads` → 400,
+stored payload is `decode(errors="replace")` text). 422 bodies are themselves
+safe to serialize: the echoed offending input — including undecodable raw
+bytes from non-JSON content types — is sanitized. All v1
 contract fixes hold (RFC3339 `Z` timestamps, documented 400/404, no nullable query params); TaskId path bound is
 ≤ 2^31-1, matching the INTEGER column (larger ids overflowed asyncpg → 500,
 found by contract fuzzing).
