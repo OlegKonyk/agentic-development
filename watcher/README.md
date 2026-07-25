@@ -19,10 +19,10 @@ label. The watcher performs the same cycle from a shell instead of a runner:
 2. **Dispatch** (`dispatcher.py`): build the *same invocation CI builds* — one
    `claude_agent_sdk.query()` per phase with
    `ClaudeAgentOptions(cwd=<checkout>, setting_sources=[],
-   permission_mode="acceptEdits", max_turns=<phase cap>,
+   permission_mode="dontAsk", max_turns=<phase cap>,
    output_format={json_schema from ci/claude/schemas/<phase>.json},
    plugins=[{"type": "local", "path": "ci/claude/plugins/<phase>"}])`.
-   Turn caps mirror CI: product/design 30, dev/rework 80, QA 50.
+   Turn caps mirror CI: product/design 30, dev/rework 120, QA 120.
 
 ## How it mirrors the CI without replacing it
 

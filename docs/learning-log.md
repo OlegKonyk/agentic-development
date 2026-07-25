@@ -162,8 +162,8 @@ taught pipeline lessons more than app lessons.
    surrogate-safe 422 echo (the naive validator-only fix converts the 500 into
    a *different* 500 in the error renderer; verified empirically). Pinning
    generation (hash seed / explicit database) is open follow-up work.
-3. **`error_max_turns` ≠ stuck, this time.** #13's second QA run burned 80/80
-   turns with zero permission denials, no loops, and steady forward progress —
+3. **`error_max_turns` ≠ stuck, this time.** #13's second QA run burned through
+   its 80-turn cap (81 logged) with zero permission denials, no loops, and steady forward progress —
    the PR's own a11y charter makes keyboard probes cost one MCP call per
    keystroke. PR #10's lesson was "a consumed budget means a stuck agent —
    read the denials"; the refinement is "read the denials *first*: zero

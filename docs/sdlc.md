@@ -217,16 +217,21 @@ claude -p "<skill invocation + context>" \
 - Agents write only to `feature/*` branches; `main` is protected by the ruleset;
   the App has no `workflows: write` (agents cannot edit pipeline definitions —
   workflow file changes are human-only by construction).
-- `ci/claude/` (agent charters), `scripts/` (pipeline glue), and `.github/`
-  are pipeline-privileged but have no GitHub-side write gate, so two layers
-  enforce them: repo-relative `Edit(...)` deny rules in
-  `ci-settings.json` steer the agent (a `//`-prefixed pattern bug once left
-  these rules dead, and the rework agent edited the QA charter on PR #13), and
-  a deterministic diff check before every dev/rework push fails the job — and
-  parks the ticket `needs-human` — if a new agent commit touches those paths.
-  When a design mandates a privileged edit (e.g. a QA-charter change), the
-  human orchestrator applies it directly; the rework skill tells the agent to
-  route such findings through `concerns` instead of fixing them.
+- `ci/claude/` (agent charters) and `scripts/` (pipeline glue) are pipeline-
+  privileged but have no GitHub-side write gate (`.github/workflows/` does —
+  the App lacks `workflows: write`), so layered controls enforce them:
+  repo-relative `Edit(...)`/`Write(...)` deny rules in `ci-settings.json`
+  steer the agent (a `//`-prefixed pattern bug once left these rules dead, and
+  the rework agent edited the QA charter on PR #13), and a deterministic check
+  before every dev/rework push fails the job — and parks the ticket
+  `needs-human` — if a new agent commit touches those paths (merge-base diff)
+  or the working tree under them is dirty (agent child processes can write
+  files no commit records, and later steps execute these scripts with the App
+  token). Checkouts use `persist-credentials: false`, so the agent step holds
+  no token; only the orchestrator's own push steps authenticate. When a design
+  mandates a privileged edit (e.g. a QA-charter change), the human
+  orchestrator applies it directly; the rework skill tells the agent to route
+  such findings through `concerns` instead of fixing them.
 
 ### Issue → PR resolution
 

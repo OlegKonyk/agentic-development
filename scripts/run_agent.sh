@@ -15,6 +15,9 @@ shift
 PROMPT="$*"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# The Edit/Write deny patterns in ci-settings.json are repo-relative and anchor
+# to the claude process cwd — pin it so they hold from any invoker.
+cd "$ROOT"
 CC="$ROOT/ci/claude"
 OUT_DIR="${AGENT_OUT_DIR:-$ROOT/agent-out}"
 mkdir -p "$OUT_DIR"
