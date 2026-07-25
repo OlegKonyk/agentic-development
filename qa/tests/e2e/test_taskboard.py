@@ -66,9 +66,8 @@ def test_due_date_renders_human_readable(alice_api: ApiClient, alice_page: Page)
     due_at = due_row.get_by_test_id("due-at")
     expect(due_at).to_be_visible()
     expect(due_at).to_have_text(re.compile(r"^\d{2} [A-Z][a-z]{2} \d{4}, \d{2}:\d{2} UTC$"))
-    text = due_at.inner_text()
-    assert "T" not in text
-    assert "Z" not in text
+    # The anchored regex above already rules out raw RFC3339 (e.g. "T" as a date/time
+    # separator, trailing "Z"); a bare "T" substring check false-positives on "UTC".
     # reminder_status is `none` for a fresh task — no badge rendered.
     expect(_row(alice_page, "No deadline").get_by_test_id("reminder-badge")).to_have_count(0)
 
