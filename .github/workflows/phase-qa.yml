@@ -53,6 +53,21 @@ jobs:
       # Statuses go to HEAD_SHA — that's what branch protection evaluates.
       - uses: actions/checkout@v4
 
+      - name: Assert fresh merge ref
+        # GitHub computes refs/pull/N/merge lazily; a label event does NOT
+        # refresh it, so after main advances the run can test yesterday's
+        # base and re-find bugs main already fixed (PR #14 burned a QA run
+        # this way). The merge commit object names its base parent even in a
+        # shallow clone; compare it to the live main tip and park if stale.
+        run: |
+          BASE_PARENT=$(git rev-parse HEAD^1)
+          MAIN_TIP=$(git ls-remote origin -h refs/heads/main | cut -f1)
+          if [ "$BASE_PARENT" != "$MAIN_TIP" ]; then
+            echo "::error::stale merge ref: base parent $BASE_PARENT != main tip $MAIN_TIP"
+            gh pr comment "$PR_NUMBER" --body "⚠️ QA skipped: the merge ref is stale (main advanced since it was computed). Update the branch with main (merge or the *Update branch* button), then re-add \`qa-ready\`."
+            exit 1
+          fi
+
       - name: Loop guard (max 10 QA cycles)
         run: |
           chmod +x scripts/*.sh

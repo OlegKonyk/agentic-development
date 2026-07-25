@@ -169,3 +169,14 @@ taught pipeline lessons more than app lessons.
    read the denials"; the refinement is "read the denials *first*: zero
    denials plus progress means the charter outgrew the cap." QA cap 80 → 120,
    and the triage rule is now in the spec's runaway-controls section.
+
+Addendum (same day): the #14 re-drive exposed one more determinism gap — the
+QA job tested a **stale merge ref**. GitHub computes `refs/pull/N/merge`
+lazily and a label event does not refresh it, so the run merged the branch
+into pre-#15 main and dutifully re-found the NUL 500 that main had already
+fixed ($1.80 of QA spent proving yesterday's code was still broken). The gate
+behaved correctly for the tree it was given — the agent even triaged the
+failure as out-of-scope, and the deterministic tier-1 rule still refused the
+pass, exactly as designed. Fix: phase-qa now asserts the merge commit's base
+parent equals the live main tip before spending anything, parking with a
+"update the branch, re-add qa-ready" comment otherwise.
