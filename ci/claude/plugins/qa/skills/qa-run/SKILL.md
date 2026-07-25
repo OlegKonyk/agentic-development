@@ -68,24 +68,6 @@ Environment notes:
    back-button after form post. After EVERY flow, check
    `browser_console_messages` and `browser_network_requests` — console errors
    and failed/4xx-5xx requests that the UI hides are your highest-value catches.
-
-   **Accessibility pass** (spend part of the charter here — `data-testid` is
-   invisible to assistive tech, so the scripted suite can stay green while the
-   page is unusable): take a `browser_snapshot` of `/login`, `/`, and `/new`
-   and read the accessibility tree, not the DOM. Probe (a) **keyboard-only
-   reachability** — complete login and create a task using
-   `browser_press_key("Tab")` / `Enter` alone, never a click, and report any
-   control you cannot reach or any focus trap; (b) **accessible names** —
-   every form control, link, and button in the snapshot has a non-empty name,
-   and row actions name the task they act on (two rows must not both announce
-   just "Delete"); (c) **landmark roles** — each page exposes one `banner` and
-   one `main`; (d) where focus lands after a form submit, a validation error,
-   or a redirect.
-
-   Severity: a missing or ambiguous accessible name on an interactive control
-   is `medium`; a control that is unreachable by keyboard, or a focus trap, is
-   `high`. Colour contrast, focus-visible styling, motion, and full WCAG
-   audits are out of scope — do not report them.
 5. **Verdict**, by these rules exactly:
    - `fail` requires at least one finding with severity critical/high AND exact
      `repro_steps`. A defect you cannot reproduce is a `low`/`medium` finding,
