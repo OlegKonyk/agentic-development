@@ -111,6 +111,23 @@ text unchanged, `GET|POST /new` (adds optional `due-at-input`),
 advance/delete as v1, `GET /healthz`. All forms carry hidden `csrf_token`
 (session-stored, compared on POST; mismatch → 403).
 
+`GET /` also accepts an optional `status` query param (`todo|doing|done`);
+any other value, including absent or empty, renders the full three-column
+board with HTTP 200 (never a 422 — this is a web-layer view filter, `GET
+/api/tasks` keeps its exact request/response shape and is called unfiltered
+either way). The board's first content element is a filter nav
+`data-testid="status-filter"` with four links — `filter-all` (→ `/`),
+`filter-todo`, `filter-doing`, `filter-done` (→ `/?status=<status>`) — of
+which exactly one carries `aria-current="page"` (plus a cosmetic `.active`
+class), `filter-all` when unfiltered or the status value is unrecognised.
+`task-count` keeps showing the user's total across all statuses regardless of
+the active filter. Each row's advance/delete form carries a hidden
+`name="status"` input holding the active filter, so both actions redirect
+back to the same filtered (or unfiltered) board. Protected-page auth
+redirects now preserve the query string in `next` (e.g. unauthed `GET
+/?status=todo` → 303 `/login?next=/%3Fstatus%3Dtodo`); `/` and `/new`
+redirects are unchanged.
+
 ## Vendor contract (what WireMock simulates)
 
 `POST /v1/notifications` (header `x-vendor-key: vendor-key`) → 202

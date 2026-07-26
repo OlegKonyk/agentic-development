@@ -156,7 +156,12 @@ def test_new_form_focus_order(alice_page: Page) -> None:
 
 @pytest.mark.parametrize(
     "path,fixture_name",
-    [("/login", "page"), ("/", "alice_page"), ("/new", "alice_page")],
+    [
+        ("/login", "page"),
+        ("/", "alice_page"),
+        ("/new", "alice_page"),
+        ("/?status=todo", "alice_page"),
+    ],
 )
 def test_pages_expose_banner_and_main_landmarks(
     request: pytest.FixtureRequest, path: str, fixture_name: str
@@ -172,6 +177,13 @@ def test_pages_expose_banner_and_main_landmarks(
         pg.get_by_role("main"),
         f"{path}: expected exactly one main landmark (<main> in base.html)",
     ).to_have_count(1)
+
+
+def test_filter_links_have_accessible_names(alice_page: Page) -> None:
+    alice_page.goto("/")
+
+    for status in ("all", "todo", "doing", "done"):
+        expect(alice_page.get_by_test_id(f"filter-{status}")).to_have_accessible_name(status)
 
 
 def test_row_actions_have_task_scoped_accessible_names(
