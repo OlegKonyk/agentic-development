@@ -108,9 +108,11 @@ TURNS=$(jq -r '.num_turns // 0' "$RESULT")
 DENIALS=$(jq -r '(.permission_denials // []) | length' "$RESULT")
 
 echo "phase=$PHASE subtype=$SUBTYPE cost_usd=$COST turns=$TURNS permission_denials=$DENIALS exit=$CLAUDE_EXIT"
-if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
-  echo "**Agent phase \`$PHASE\`** — subtype \`$SUBTYPE\`, ${TURNS} turns, ~\$${COST} (client estimate), ${DENIALS} permission denials" >> "$GITHUB_STEP_SUMMARY"
-fi
+# The cost line is lab telemetry (scripts/lab_metrics.py parses it from ticket
+# comments); phase workflows surface phase-cost.md on the issue/PR.
+COST_LINE="**Agent phase \`$PHASE\`** — subtype \`$SUBTYPE\`, ${TURNS} turns, ~\$${COST} (client estimate), ${DENIALS} permission denials"
+echo "$COST_LINE" > "$OUT_DIR/phase-cost.md"
+[[ -n "${GITHUB_STEP_SUMMARY:-}" ]] && echo "$COST_LINE" >> "$GITHUB_STEP_SUMMARY"
 
 jq -e '.structured_output' "$RESULT" > "$OUT_DIR/$PHASE-output.json" 2>/dev/null || {
   echo "::error::phase $PHASE ended subtype=$SUBTYPE without structured output"

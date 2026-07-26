@@ -85,6 +85,11 @@ jobs:
           npm install -g @anthropic-ai/claude-code@$CLAUDE_CODE_VERSION
           scripts/run_agent.sh dev "/dev:implement context/issue.json"
 
+      - name: Post phase cost (lab telemetry, even on failure)
+        if: always()
+        run: |
+          [ -f agent-out/phase-cost.md ] && gh issue comment "$ISSUE" --body-file agent-out/phase-cost.md || true
+
       - name: Require commits
         run: |
           COUNT=$(git rev-list --count origin/main..HEAD)
@@ -241,6 +246,11 @@ jobs:
           git config user.email "sdlc-orchestrator[bot]@users.noreply.github.com"
           npm install -g @anthropic-ai/claude-code@$CLAUDE_CODE_VERSION
           scripts/run_agent.sh dev "/dev:rework context"
+
+      - name: Post phase cost (lab telemetry, even on failure)
+        if: always()
+        run: |
+          [ -f agent-out/phase-cost.md ] && gh issue comment "$PR_NUMBER" --body-file agent-out/phase-cost.md || true
 
       - name: Enforce privileged-path boundary
         # Same hard stop as the implement job, over this run's new commits only

@@ -111,6 +111,12 @@ jobs:
               lines += ["### Improvement proposals filed"] + [f"- {u}" for u in created]
           else:
               lines += ["_No improvement proposals from this ticket._"]
+          try:
+              res = json.loads(pathlib.Path("agent-out/retro-result.json").read_text())
+              lines += ["", (f"**Agent phase `retro`** — {res.get('num_turns', '?')} turns, "
+                             f"~${res.get('total_cost_usd', 0)} (client estimate)")]
+          except (OSError, json.JSONDecodeError):
+              pass
           pathlib.Path("agent-out/retro-comment.md").write_text("\n".join(lines) + "\n")
           EOF
           gh issue comment "$ISSUE" --body-file agent-out/retro-comment.md
