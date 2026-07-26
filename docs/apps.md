@@ -21,6 +21,9 @@ async reminder jobs, a programmable vendor, signed webhooks, and a chaos layer.
 CI/test profile routing (via toxiproxy listeners): api→db uses `toxiproxy:5433`,
 api/worker→vendor uses `toxiproxy:8666`. Dev profile connects directly.
 CI Postgres runs on tmpfs with `fsync=off synchronous_commit=off`.
+Test harnesses raise the gateway request budget (`wrangler dev --var
+RATE_LIMIT:600`; production-realistic default 60 req/10 s) — full-suite e2e
+volume must not trip 429s that single tests would misread as product bugs.
 
 ## Domain
 

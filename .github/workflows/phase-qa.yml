@@ -96,7 +96,7 @@ jobs:
       - name: Boot the stack
         run: |
           docker compose up -d --wait --wait-timeout 120
-          (cd gateway && nohup npx wrangler dev --port 8787 > ../wrangler-dev.log 2>&1 &)
+          (cd gateway && nohup npx wrangler dev --port 8787 --var RATE_LIMIT:600 > ../wrangler-dev.log 2>&1 &)
           for url in http://localhost:8000/healthz http://localhost:8001/healthz http://localhost:8787/gw/healthz; do
             curl --retry 60 --retry-delay 1 --retry-all-errors -sf "$url" > /dev/null
           done

@@ -2,21 +2,30 @@ interface Env {
   API_ORIGIN: string;
   WEB_ORIGIN: string;
   GATEWAY_API_KEY: string;
+  // Test harnesses override the request budget (--var RATE_LIMIT:600): the
+  // tier-1 e2e suite's cumulative volume outgrew the default and tripped 429s
+  // on unrelated tests (PR #24, twice). Default stays production-realistic.
+  RATE_LIMIT?: string;
 }
 
 const RATE_WINDOW_MS = 10_000;
-const RATE_LIMIT = 60;
+const DEFAULT_RATE_LIMIT = 60;
+
+function rateLimit(env: Env): number {
+  const parsed = Number(env.RATE_LIMIT);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_RATE_LIMIT;
+}
 
 // Per-isolate state: resets on isolate recycle, not shared across colos.
 // The GA Rate Limiting binding is the production path.
 const hits = new Map<string, number[]>();
 
-function isRateLimited(key: string): boolean {
+function isRateLimited(key: string, limit: number): boolean {
   const now = Date.now();
   const recent = (hits.get(key) ?? []).filter((t) => now - t < RATE_WINDOW_MS);
   recent.push(now);
   hits.set(key, recent);
-  return recent.length > RATE_LIMIT;
+  return recent.length > limit;
 }
 
 function json(body: unknown, status: number): Response {
@@ -44,7 +53,7 @@ async function handle(request: Request, env: Env, requestId: string): Promise<Re
 
   const apiKey = request.headers.get("x-api-key");
   const rateKey = apiKey ?? request.headers.get("cf-connecting-ip") ?? "unknown";
-  if (isRateLimited(rateKey)) {
+  if (isRateLimited(rateKey, rateLimit(env))) {
     return json({ error: "rate_limited" }, 429);
   }
 

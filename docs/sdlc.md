@@ -125,7 +125,8 @@ re-add `qa-ready`.
 
 **Tier 1 — deterministic (the hard gate).**
 Boot the stack (`docker compose up --wait` for api+web, `wrangler dev` for the
-gateway, health-gated with curl retries), seed data (`python -m app.seed`), then:
+gateway with the test-profile request budget `--var RATE_LIMIT:600`,
+health-gated with curl retries), seed data (`python -m app.seed`), then:
 
 - API unit + integration tests (`pytest` with httpx `ASGITransport`)
 - Contract tests (Schemathesis v4 against the OpenAPI schema — fixed `--seed`,
