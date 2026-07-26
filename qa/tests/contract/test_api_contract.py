@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 from collections.abc import Iterator
 
+import httpx
 import pytest
 import schemathesis
 from hypothesis import HealthCheck, settings
@@ -49,3 +50,12 @@ def test_api_contract(case: schemathesis.Case, bearer_headers: dict[str, str]) -
         headers=bearer_headers,
         excluded_checks=[positive_data_acceptance, negative_data_rejection],
     )
+
+
+def test_reminder_health_operation_is_documented_and_401s_unauthenticated(api_url: str) -> None:
+    spec = httpx.get(f"{api_url}/openapi.json", timeout=10.0).json()
+    assert "/api/reminders/health" in spec["paths"]
+    assert "get" in spec["paths"]["/api/reminders/health"]
+
+    resp = httpx.get(f"{api_url}/api/reminders/health", timeout=10.0)
+    assert resp.status_code == 401

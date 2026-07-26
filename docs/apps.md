@@ -37,6 +37,9 @@ volume must not trip 429s that single tests would misread as product bugs.
   reminder_status none|pending|sent|failed, created_at}` — strictly scoped to
   owner.
 - `WebhookEvent {id: vendor event id (unique — dedupe), received_at, payload}`.
+- `ReminderDelivery {id, task_id (indexed, no FK — an outcome outlives its task),
+  outcome: accepted|failed, at (tz-aware, indexed)}` — one append-only row per
+  `send_reminder` job run; the source of the reminder-delivery health signal.
 
 ## apps/api — FastAPI, async SQLModel + asyncpg, Alembic (port 8000)
 
@@ -59,6 +62,14 @@ contract fixes hold (RFC3339 `Z` timestamps, documented 400/404, no nullable que
 ≤ 2^31-1, matching the INTEGER column (larger ids overflowed asyncpg → 500,
 found by contract fuzzing).
 
+Reminder health: `GET /api/reminders/health` (bearer required, else 401) → 200
+`{"state": "healthy"|"degraded", "window_seconds": int}`. System-wide (not
+scoped to the caller) — degraded iff the most recent `ReminderDelivery` inside
+the trailing `REMINDER_HEALTH_WINDOW_SECONDS` window has outcome `failed`; a
+later `accepted` clears it, and a failure aging out of the window clears it.
+The response carries no task ids, counts, or timestamps, so owner-scoping is
+never broken by it.
+
 Webhooks: `POST /api/webhooks/vendor` — Standard-Webhooks-style HMAC-SHA256 of
 `{webhook-id}.{webhook-timestamp}.{raw body}` using `VENDOR_WEBHOOK_SECRET`
 (compose default `whsec_test`), headers `webhook-id`, `webhook-timestamp`
@@ -68,17 +79,26 @@ Duplicate `webhook-id` → 200 with **exactly one** side effect. Payload
 task's `reminder_status` pending→sent.
 
 Test-only (mounted when `APP_ENV=test`): `POST /api/testing/reset` → 204 wipes
-tasks+sessions+webhook events, keeps seeded users; `POST /api/testing/run-due-reminders`
-→ 202 `{enqueued: n}` (deterministic trigger — E2E is trigger+poll, never sleep).
+tasks+sessions+webhook events+reminder-delivery history, keeps seeded users;
+`POST /api/testing/run-due-reminders` → 202 `{enqueued: n}` (deterministic
+trigger — E2E is trigger+poll, never sleep); `POST
+/api/testing/clear-reminder-deliveries` → 204, wipes only `reminder_deliveries`
+(sessions and tasks survive — a health-only reset for suites that need to clear
+a degraded signal without revoking logins).
 
 Reminder flow: scheduler tick (30s prod, trigger endpoint in tests) finds
 `due_at <= now AND reminder_status = 'none'` → marks `pending`, enqueues taskiq
 job → job POSTs vendor `/v1/notifications` `{task_id, title, due_at,
 idempotency_key}` with 2s timeout + 3 tenacity retries (injectable wait) →
-vendor later webhooks delivery → `sent`. Retries exhausted → `failed`.
+vendor later webhooks delivery → `sent`. Retries exhausted → `failed`. Each job
+run also appends exactly one `ReminderDelivery` row (`accepted` on vendor 2xx,
+`failed` once retries exhaust — recorded even if the task was deleted
+mid-flight), which is what `GET /api/reminders/health` reads.
 
 Config env: `DATABASE_URL`, `REDIS_URL`, `VENDOR_URL`, `VENDOR_API_KEY`
 (`vendor-key`), `VENDOR_WEBHOOK_SECRET`, `APP_ENV`, `SESSION_TTL_SECONDS=3600`,
+`REMINDER_HEALTH_WINDOW_SECONDS=900` (recency window for the reminder-delivery
+health signal, on api + worker),
 `REQUEST_DEADLINE_MS=8000` (every request runs under an asyncio deadline →
 504 JSON on breach; the only timeout that bounds a stalled DB wire, since
 asyncpg's BEGIN bypasses `command_timeout`), `DB_COMMAND_TIMEOUT_MS=4000`,
@@ -118,7 +138,17 @@ advance/delete as v1, `GET /healthz`. All forms carry hidden `csrf_token`
 any other value, including absent or empty, renders the full three-column
 board with HTTP 200 (never a 422 — this is a web-layer view filter, `GET
 /api/tasks` keeps its exact request/response shape and is called unfiltered
-either way). The board's first content element is a filter nav
+either way). `GET /` fetches `/api/reminders/health` (dedicated 2s timeout)
+after the tasks fetch — skipped when the tasks fetch already failed — and
+renders a degraded-service banner (`data-testid="reminder-degraded-banner"`,
+`role="status"`, no `tabindex`/`autofocus`) as the first element of the board
+content block, above the filter nav, only when the health state is exactly
+`degraded`; any other outcome (healthy, non-200, timeout, connection error,
+unparseable body, 401) renders no banner and never blocks or breaks the board.
+The banner adds no landmark (the page keeps exactly one `banner` and one
+`main`) and is absent from the DOM when not showing, not merely hidden; `/new`
+and `/login` never render it. Otherwise the board's first content element (the
+second, when the degraded banner is present) is a filter nav
 `data-testid="status-filter"` with four links — `filter-all` (→ `/`),
 `filter-todo`, `filter-doing`, `filter-done` (→ `/?status=<status>`) — of
 which exactly one carries `aria-current="page"` (plus a cosmetic `.active`
@@ -160,16 +190,25 @@ asserts no toxics leak between tests.
   reminder trigger+poll (`wait_until` helper, deadline 15s, no sleeps),
   accessibility smoke (non-empty accessible names on form controls and board
   row actions, keyboard focus order on the login and new-task forms, exactly
-  one banner + one main landmark per page).
+  one banner + one main landmark per page), and the degraded-reminders banner
+  driven by WireMock vendor faults + recovery (`vendor_admin`,
+  `clean_reminder_health` fixtures) — appears/clears deterministically, board
+  stays functional (advance/delete still work) while showing, and the page
+  keeps exactly one banner/main landmark plus one `status` region with no
+  stolen focus.
 - `tests/contract/` — Schemathesis v4 against the API (auth'd via bearer
-  override), bounded + deterministic as v1.
+  override), bounded + deterministic as v1; plus an explicit check that
+  `GET /api/reminders/health` is documented and 401s unauthenticated.
 - `tests/resilience/` — vendor faults via WireMock admin (5xx → reminder
   `failed`, recovery after reset) and Toxiproxy matrix: db latency 500ms →
   still 200 (degraded-but-functional stays under the 8s request deadline);
   db stall (timeout=0) → 5xx JSON by the deadline, never a hang; vendor
   reset_peer → reminder `failed` after retries. The `toxiproxy` fixture's
   teardown removes toxics AND asserts recovery (login succeeds again) so
-  poisoned connection pools never bleed into the next test.
+  poisoned connection pools never bleed into the next test. Reminder-delivery
+  health (AC-10): WireMock 5xx and Toxiproxy `reset_peer` on the vendor proxy
+  each flip `GET /api/reminders/health` to `degraded`, observed via
+  `wait_until` (never sleep), recovering after the fault clears.
 - `tests/webhooks/` — signature matrix: valid, tampered body → 401, stale
   timestamp → 400, duplicate id → single side effect; helper
   `qa_helpers.webhooks.sign(payload, secret, ts)`.
