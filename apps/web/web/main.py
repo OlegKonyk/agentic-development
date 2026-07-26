@@ -18,6 +18,32 @@ from starlette.middleware.sessions import SessionMiddleware
 STATUS_COLUMNS = ("todo", "doing", "done")
 NEXT_STATUS = {"todo": "doing", "doing": "done", "done": "done"}
 
+
+def normalize_status(value: str | None) -> str | None:
+    """Return `value` when it names a board column, else None (= 'all')."""
+    return value if value in STATUS_COLUMNS else None
+
+
+def board_url(status: str | None) -> str:
+    """Board URL carrying the active filter; '/' when unfiltered."""
+    return f"/?status={status}" if status else "/"
+
+
+def filter_options(active: str | None) -> list[dict[str, object]]:
+    """The four filter links in order (all, todo, doing, done), active one marked."""
+    values: tuple[str | None, ...] = (None, *STATUS_COLUMNS)
+    return [
+        {
+            "value": value,
+            "label": value or "all",
+            "testid": f"filter-{value or 'all'}",
+            "href": board_url(value),
+            "active": value == active,
+        }
+        for value in values
+    ]
+
+
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 
 API_UNAVAILABLE_MESSAGE = "The task API is unavailable. Please try again shortly."
@@ -137,7 +163,10 @@ def create_app() -> FastAPI:
     def require_token(request: Request) -> str:
         token = request.session.get("token")
         if not token:
-            raise AuthRedirect(f"/login?next={quote(request.url.path)}")
+            target = request.url.path
+            if request.url.query:
+                target = f"{target}?{request.url.query}"
+            raise AuthRedirect(f"/login?next={quote(target)}")
         return token
 
     def bearer(token: str) -> dict[str, str]:
@@ -195,8 +224,10 @@ def create_app() -> FastAPI:
         return RedirectResponse(url="/login", status_code=303)
 
     @app.get("/", response_class=HTMLResponse)
-    async def index(request: Request) -> HTMLResponse:
+    async def index(request: Request, status: str | None = None) -> HTMLResponse:
         token = require_token(request)
+        active = normalize_status(status)
+        visible = (active,) if active else STATUS_COLUMNS
         columns: dict[str, list[dict]] = {status: [] for status in STATUS_COLUMNS}
         task_count = 0
         user_email: str | None = None
@@ -223,7 +254,9 @@ def create_app() -> FastAPI:
             "index.html",
             {
                 "columns": columns,
-                "statuses": STATUS_COLUMNS,
+                "statuses": visible,
+                "filters": filter_options(active),
+                "active_status": active,
                 "api_error": api_error,
                 "authed": True,
                 "user_email": user_email,
@@ -292,7 +325,10 @@ def create_app() -> FastAPI:
 
     @app.post("/tasks/{task_id}/advance")
     async def advance_task(
-        request: Request, task_id: int, csrf_token: Annotated[str, Form()] = ""
+        request: Request,
+        task_id: int,
+        csrf_token: Annotated[str, Form()] = "",
+        status: Annotated[str, Form()] = "",
     ) -> RedirectResponse:
         check_csrf(request, csrf_token)
         token = require_token(request)
@@ -311,11 +347,14 @@ def create_app() -> FastAPI:
                         raise SessionExpired
         except httpx.HTTPError:
             pass  # index will surface the api-error banner
-        return RedirectResponse(url="/", status_code=303)
+        return RedirectResponse(url=board_url(normalize_status(status)), status_code=303)
 
     @app.post("/tasks/{task_id}/delete")
     async def delete_task(
-        request: Request, task_id: int, csrf_token: Annotated[str, Form()] = ""
+        request: Request,
+        task_id: int,
+        csrf_token: Annotated[str, Form()] = "",
+        status: Annotated[str, Form()] = "",
     ) -> RedirectResponse:
         check_csrf(request, csrf_token)
         token = require_token(request)
@@ -325,7 +364,7 @@ def create_app() -> FastAPI:
                 raise SessionExpired
         except httpx.HTTPError:
             pass  # index will surface the api-error banner
-        return RedirectResponse(url="/", status_code=303)
+        return RedirectResponse(url=board_url(normalize_status(status)), status_code=303)
 
     @app.get("/healthz")
     async def healthz() -> dict[str, str]:

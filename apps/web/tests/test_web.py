@@ -14,9 +14,12 @@ import pytest
 import respx
 from fastapi.testclient import TestClient
 from web.main import (
+    board_url,
     create_app,
     decorate_tasks,
+    filter_options,
     format_due_at,
+    normalize_status,
     parse_due_at,
     safe_next,
     title_rejected,
@@ -158,6 +161,46 @@ def test_decorate_tasks_orders_by_due_then_id() -> None:
     assert [t["id"] for t in ordered] == [3, 1, 2, 4]
 
 
+def test_safe_next_allows_path_with_query() -> None:
+    assert safe_next("/?status=todo") == "/?status=todo"
+    assert safe_next("//evil?x=1") == "/"
+
+
+def test_normalize_status_accepts_columns_only() -> None:
+    assert normalize_status("todo") == "todo"
+    assert normalize_status("doing") == "doing"
+    assert normalize_status("done") == "done"
+    assert normalize_status(None) is None
+    assert normalize_status("") is None
+    assert normalize_status("TODO") is None
+    assert normalize_status("archived") is None
+
+
+def test_board_url_builds_filtered_and_plain_urls() -> None:
+    assert board_url(None) == "/"
+    assert board_url("doing") == "/?status=doing"
+
+
+def test_filter_options_marks_active_and_defaults_to_all() -> None:
+    options = filter_options(None)
+
+    assert [o["value"] for o in options] == [None, "todo", "doing", "done"]
+    assert [o["label"] for o in options] == ["all", "todo", "doing", "done"]
+    assert [o["testid"] for o in options] == [
+        "filter-all",
+        "filter-todo",
+        "filter-doing",
+        "filter-done",
+    ]
+    assert [o["href"] for o in options] == ["/", "/?status=todo", "/?status=doing", "/?status=done"]
+    assert sum(1 for o in options if o["active"]) == 1
+    assert options[0]["active"] is True
+
+    active_doing = filter_options("doing")
+    assert sum(1 for o in active_doing if o["active"]) == 1
+    assert next(o for o in active_doing if o["value"] == "doing")["active"] is True
+
+
 def test_decorate_tasks_marks_overdue_only_for_past_due() -> None:
     now = datetime(2026, 7, 25, 12, 0, 0, tzinfo=UTC)
     tasks = [
@@ -187,6 +230,13 @@ def test_unauthed_new_redirects_to_login_with_next(client: TestClient) -> None:
 
     assert resp.status_code == 303
     assert resp.headers["location"] == "/login?next=/new"
+
+
+def test_unauthed_filtered_board_redirects_with_encoded_next(client: TestClient) -> None:
+    resp = client.get("/?status=todo", follow_redirects=False)
+
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/login?next=/%3Fstatus%3Dtodo"
 
 
 def test_login_form_renders(client: TestClient) -> None:
@@ -444,6 +494,199 @@ def test_index_shows_error_banner_when_api_down(client: TestClient) -> None:
     assert resp.status_code == 200
     assert 'data-testid="api-error"' in resp.text
     assert "The task API is unavailable. Please try again shortly." in resp.text
+
+
+# --- board status filter -----------------------------------------------------
+
+
+@respx.mock
+def test_index_unfiltered_renders_all_three_columns(client: TestClient) -> None:
+    login(client)
+    mock_board()
+
+    body = client.get("/").text
+
+    assert body.count('data-testid="task-row"') == 3
+    for status in ("todo", "doing", "done"):
+        assert f'id="column-{status}"' in body
+
+
+@respx.mock
+def test_index_filtered_renders_only_that_column(client: TestClient) -> None:
+    login(client)
+    mock_board()
+
+    body = client.get("/?status=doing").text
+
+    assert body.count('data-testid="task-row"') == 1
+    assert "Build the API" in body
+    assert "Write the spec" not in body
+    assert "Ship it" not in body
+    assert 'id="column-todo"' not in body
+    assert 'id="column-done"' not in body
+
+
+@respx.mock
+def test_index_filtered_marks_active_filter_link(client: TestClient) -> None:
+    login(client)
+    mock_board()
+
+    body = client.get("/?status=doing").text
+
+    assert body.count('aria-current="page"') == 1
+    start = body.index('data-testid="filter-doing"')
+    end = body.index(">", start)
+    assert 'aria-current="page"' in body[start:end]
+
+
+@respx.mock
+def test_index_unknown_status_renders_full_board_200(client: TestClient) -> None:
+    login(client)
+    mock_board()
+
+    resp = client.get("/?status=archived")
+
+    assert resp.status_code == 200
+    body = resp.text
+    assert body.count('data-testid="task-row"') == 3
+    start = body.index('data-testid="filter-all"')
+    end = body.index(">", start)
+    assert 'aria-current="page"' in body[start:end]
+
+
+@respx.mock
+def test_index_empty_status_param_renders_full_board(client: TestClient) -> None:
+    login(client)
+    mock_board()
+
+    body = client.get("/?status=").text
+
+    assert body.count('data-testid="task-row"') == 3
+
+
+@respx.mock
+def test_index_task_count_stays_total_when_filtered(client: TestClient) -> None:
+    login(client)
+    mock_board()
+
+    body = client.get("/?status=done").text
+
+    assert 'data-testid="task-count">3<' in body
+
+
+@respx.mock
+def test_index_filter_control_always_present(client: TestClient) -> None:
+    login(client)
+    mock_board()
+
+    for url in ("/", "/?status=todo"):
+        body = client.get(url).text
+        assert 'data-testid="status-filter"' in body
+        for testid in ("filter-all", "filter-todo", "filter-doing", "filter-done"):
+            assert f'data-testid="{testid}"' in body
+
+
+@respx.mock
+def test_index_api_error_still_renders_filter_control(client: TestClient) -> None:
+    login(client)
+    respx.get(f"{API}/api/auth/me").mock(return_value=httpx.Response(200, json=ME))
+    respx.get(f"{API}/api/tasks").mock(side_effect=httpx.ConnectError("refused"))
+
+    resp = client.get("/?status=todo")
+
+    assert resp.status_code == 200
+    assert 'data-testid="api-error"' in resp.text
+    assert 'data-testid="status-filter"' in resp.text
+    assert 'data-testid="task-row"' not in resp.text
+
+
+@respx.mock
+def test_index_row_forms_carry_active_filter(client: TestClient) -> None:
+    login(client)
+    mock_board()
+
+    filtered = client.get("/?status=todo").text
+    assert 'name="status" value="todo"' in filtered
+
+    unfiltered = client.get("/").text
+    assert 'name="status" value="">' in unfiltered
+
+
+@respx.mock
+def test_advance_redirects_back_to_filtered_board(client: TestClient) -> None:
+    csrf = login(client)
+    respx.get(f"{API}/api/tasks/1").mock(return_value=httpx.Response(200, json=SEEDED[0]))
+    patch = respx.patch(f"{API}/api/tasks/1").mock(
+        return_value=httpx.Response(200, json={**SEEDED[0], "status": "doing"})
+    )
+
+    resp = client.post(
+        "/tasks/1/advance",
+        data={"csrf_token": csrf, "status": "todo"},
+        follow_redirects=False,
+    )
+
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/?status=todo"
+    assert patch.calls.last.request.headers["Authorization"] == AUTH
+
+
+@respx.mock
+def test_advance_without_filter_redirects_to_board(client: TestClient) -> None:
+    csrf = login(client)
+    respx.get(f"{API}/api/tasks/1").mock(return_value=httpx.Response(200, json=SEEDED[0]))
+    respx.patch(f"{API}/api/tasks/1").mock(
+        return_value=httpx.Response(200, json={**SEEDED[0], "status": "doing"})
+    )
+
+    resp = client.post("/tasks/1/advance", data={"csrf_token": csrf}, follow_redirects=False)
+
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/"
+
+
+@respx.mock
+def test_advance_ignores_unknown_filter_value(client: TestClient) -> None:
+    csrf = login(client)
+    respx.get(f"{API}/api/tasks/1").mock(return_value=httpx.Response(200, json=SEEDED[0]))
+    respx.patch(f"{API}/api/tasks/1").mock(
+        return_value=httpx.Response(200, json={**SEEDED[0], "status": "doing"})
+    )
+
+    resp = client.post(
+        "/tasks/1/advance",
+        data={"csrf_token": csrf, "status": "bogus"},
+        follow_redirects=False,
+    )
+
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/"
+
+
+@respx.mock
+def test_delete_redirects_back_to_filtered_board(client: TestClient) -> None:
+    csrf = login(client)
+    respx.delete(f"{API}/api/tasks/2").mock(return_value=httpx.Response(204))
+
+    resp = client.post(
+        "/tasks/2/delete",
+        data={"csrf_token": csrf, "status": "done"},
+        follow_redirects=False,
+    )
+
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/?status=done"
+
+
+@respx.mock
+def test_delete_without_filter_redirects_to_board(client: TestClient) -> None:
+    csrf = login(client)
+    respx.delete(f"{API}/api/tasks/2").mock(return_value=httpx.Response(204))
+
+    resp = client.post("/tasks/2/delete", data={"csrf_token": csrf}, follow_redirects=False)
+
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/"
 
 
 # --- new task --------------------------------------------------------------
