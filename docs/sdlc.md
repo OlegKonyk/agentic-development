@@ -200,8 +200,12 @@ claude -p "<skill invocation + context>" \
   non-bare mode. Hooks are NOT used for CI enforcement (they don't run in bare
   mode; enforcement lives in YAML + permission flags).
 - Every run's full JSON payload (incl. `total_cost_usd`, `num_turns`,
-  `session_id`) is uploaded as an artifact and cost is echoed into the phase
-  comment.
+  `session_id`) is uploaded as an artifact, and every phase surfaces its cost
+  line (`Agent phase … N turns, ~$C …`) on the ticket: product/design append
+  it to their spec/design comments, dev/rework post it on the issue/PR even
+  when the run fails, QA's rides the verdict comment, retro's rides the retro
+  comment. `scripts/lab_metrics.py` parses these lines, so full-pipeline
+  spend is measurable per ticket (the lab's cost metric).
 
 ### Cost and runaway controls
 

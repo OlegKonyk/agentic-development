@@ -65,6 +65,7 @@ jobs:
           lines += ["", f"_Estimated scope: {out['estimated_scope']}_"]
           pathlib.Path("agent-out/spec-comment.md").write_text("\n".join(lines))
           EOF
+          { echo ""; cat agent-out/phase-cost.md; } >> agent-out/spec-comment.md
 
       - name: Transition → stage:design
         env:
