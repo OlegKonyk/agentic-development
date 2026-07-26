@@ -65,7 +65,10 @@ async def db_setup(_database: None) -> AsyncIterator[None]:
     engine = db.engine()
     async with engine.begin() as conn:
         await conn.execute(
-            text("TRUNCATE TABLE tasks, sessions, webhook_events, users RESTART IDENTITY CASCADE")
+            text(
+                "TRUNCATE TABLE tasks, sessions, webhook_events, reminder_deliveries, users "
+                "RESTART IDENTITY CASCADE"
+            )
         )
     async with db.session_scope() as session:
         await seed.upsert_users(session, hashes=seed_hashes())

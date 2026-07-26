@@ -19,8 +19,19 @@ from app.auth import CurrentUser
 from app.auth import router as auth_router
 from app.db import SessionDep
 from app.jobs import enqueue_due
+from app.models import (
+    ReminderDelivery,
+    ReminderHealthRead,
+    Status,
+    Task,
+    TaskCreate,
+    TaskRead,
+    TaskUpdate,
+    User,
+    WebhookEvent,
+)
 from app.models import Session as AuthSession
-from app.models import Status, Task, TaskCreate, TaskRead, TaskUpdate, User, WebhookEvent
+from app.reminders import delivery_health, health_window_seconds
 from app.tkq import broker
 from app.webhooks import router as webhooks_router
 
@@ -99,14 +110,35 @@ async def delete_task(task_id: TaskId, session: SessionDep, user: CurrentUser) -
     await session.commit()
 
 
+reminders_router = APIRouter(
+    prefix="/api/reminders",
+    tags=["reminders"],
+    responses={401: {"description": "Not authenticated"}},
+)
+
+
+@reminders_router.get("/health", response_model=ReminderHealthRead)
+async def reminder_health(session: SessionDep, user: CurrentUser) -> ReminderHealthRead:
+    return ReminderHealthRead(
+        state=await delivery_health(session), window_seconds=health_window_seconds()
+    )
+
+
 testing_router = APIRouter(prefix="/api/testing", tags=["testing"])
 
 
 @testing_router.post("/reset", status_code=204)
 async def reset(session: SessionDep) -> None:
-    # Wipe tasks, sessions, and webhook events; keep the seeded users.
-    for model in (Task, AuthSession, WebhookEvent):
+    # Wipe tasks, sessions, webhook events, and reminder-delivery history; keep the seeded users.
+    for model in (Task, AuthSession, WebhookEvent, ReminderDelivery):
         await session.execute(delete(model))
+    await session.commit()
+
+
+@testing_router.post("/clear-reminder-deliveries", status_code=204)
+async def clear_reminder_deliveries(session: SessionDep) -> None:
+    # Health-only reset: leaves sessions and tasks intact (unlike /reset).
+    await session.execute(delete(ReminderDelivery))
     await session.commit()
 
 
@@ -213,6 +245,7 @@ def create_app() -> FastAPI:
 
     application.include_router(auth_router)
     application.include_router(tasks_router)
+    application.include_router(reminders_router)
     application.include_router(webhooks_router)
     if os.environ.get("APP_ENV") == "test":
         application.include_router(testing_router)

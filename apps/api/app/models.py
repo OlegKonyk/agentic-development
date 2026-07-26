@@ -9,6 +9,8 @@ from sqlmodel import Field, SQLModel
 
 Status = Literal["todo", "doing", "done"]
 ReminderStatus = Literal["none", "pending", "sent", "failed"]
+DeliveryOutcome = Literal["accepted", "failed"]
+ReminderHealthState = Literal["healthy", "degraded"]
 
 
 def _require_non_blank(value: str) -> str:
@@ -104,6 +106,18 @@ class WebhookEvent(SQLModel, table=True):
     payload: str = ""
 
 
+class ReminderDelivery(SQLModel, table=True):
+    __tablename__ = "reminder_deliveries"
+
+    id: int | None = Field(default=None, primary_key=True)
+    # Deliberately NO foreign key to tasks.id: a delivery outcome outlives the
+    # task, and an FK would make DELETE /api/tasks/{id} fail once a reminder
+    # had been attempted for it.
+    task_id: int = Field(index=True)
+    outcome: str = Field(max_length=16)
+    at: datetime = Field(default_factory=_utcnow, sa_type=DateTime(timezone=True), index=True)
+
+
 class TaskCreate(BaseModel):
     title: Title
     description: StorableStr = ""
@@ -133,6 +147,11 @@ class TaskRead(BaseModel):
     @field_serializer("due_at")
     def _due_rfc3339(self, value: datetime | None) -> str | None:
         return None if value is None else rfc3339(value)
+
+
+class ReminderHealthRead(BaseModel):
+    state: ReminderHealthState
+    window_seconds: int
 
 
 class UserRead(BaseModel):
