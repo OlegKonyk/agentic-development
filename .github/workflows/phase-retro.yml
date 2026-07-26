@@ -1,0 +1,128 @@
+name: phase-retro
+# Ticket closed out (deployed label) → retro agent reads the ticket's full
+# trajectory and drafts the learning-log entry + improvement proposals, filed
+# as stage:idea issues (max 3 per run). Advisory by design: it blocks nothing,
+# transitions nothing on the source ticket, and its proposals enter the
+# pipeline only when a human applies stage:spec — the same entry gate features
+# get. Everything runs on GITHUB_TOKEN: stage:idea triggers no phase, and
+# GITHUB_TOKEN events never chain, so the loop cannot close itself.
+
+on:
+  issues:
+    types: [labeled]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+env:
+  CLAUDE_CODE_VERSION: "2.1.219"
+
+jobs:
+  retro:
+    if: github.event.label.name == 'deployed'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: retro-${{ github.event.issue.number }}
+      cancel-in-progress: false
+    env:
+      ISSUE: ${{ github.event.issue.number }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Loop guard
+        # Include 'deployed' in the counted pattern: retro re-triggers on every
+        # re-add of that label, and the default stage:/qa- pattern would never
+        # count them, leaving retro effectively unbounded.
+        run: |
+          chmod +x scripts/*.sh
+          scripts/loop_guard.sh "$ISSUE" '^(stage:|qa-|deployed)'
+
+      - name: Gather ticket trajectory
+        run: |
+          mkdir -p context agent-out
+          gh issue view "$ISSUE" --json number,title,body,labels,comments,closedAt > context/issue.json
+          gh api "repos/${GITHUB_REPOSITORY}/issues/${ISSUE}/timeline" --paginate --slurp > context/issue-timeline.json
+          PR=$(gh api graphql \
+            -f query='query($owner:String!,$repo:String!,$n:Int!){repository(owner:$owner,name:$repo){issue(number:$n){closedByPullRequestsReferences(first:10,includeClosedPrs:true){nodes{number state}}}}}' \
+            -f owner="${GITHUB_REPOSITORY%/*}" -f repo="${GITHUB_REPOSITORY#*/}" -F n="$ISSUE" \
+            --jq '[.data.repository.issue.closedByPullRequestsReferences.nodes[] | select(.state=="MERGED")][0].number // empty')
+          if [ -n "$PR" ]; then
+            gh pr view "$PR" --json number,title,body,files,mergedAt > context/pr.json
+            gh api "repos/${GITHUB_REPOSITORY}/issues/${PR}/comments" --paginate --slurp > context/pr-comments.json
+            gh api "repos/${GITHUB_REPOSITORY}/issues/${PR}/timeline" --paginate --slurp > context/pr-timeline.json
+          else
+            echo '{"warning": "no merged PR found for this issue"}' > context/pr.json
+          fi
+
+      - name: Retro agent
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          npm install -g @anthropic-ai/claude-code@$CLAUDE_CODE_VERSION
+          scripts/run_agent.sh retro "/retro:retro-run context"
+
+      - name: Publish retro (comment + stage:idea proposals)
+        run: |
+          python3 - <<'EOF'
+          import json
+          import os
+          import pathlib
+          import subprocess
+
+          out = json.loads(pathlib.Path("agent-out/retro-output.json").read_text())
+          issue = os.environ["ISSUE"]
+          run_url = (
+              f"{os.environ.get('GITHUB_SERVER_URL', '')}/{os.environ.get('GITHUB_REPOSITORY', '')}"
+              f"/actions/runs/{os.environ.get('GITHUB_RUN_ID', '')}"
+          )
+          lines = [
+              "<!-- sdlc:retro -->",
+              "## 🪞 Retro",
+              "",
+              out["summary"],
+              "",
+              "### Draft learning-log entry",
+              "",
+              # Four backticks: the drafted entry may itself contain code fences.
+              "````markdown",
+              out["learning_log_entry"].strip(),
+              "````",
+              "",
+          ]
+          created = []
+          for p in out.get("proposals", [])[:3]:
+              body = (
+                  f"{p['body']}\n\n### Evidence\n{p['evidence']}\n\n"
+                  f"_Filed by the retro phase from ticket #{issue} ({run_url}). "
+                  "Apply `stage:spec` to accept it into the pipeline._"
+              )
+              r = subprocess.run(
+                  ["gh", "issue", "create",
+                   "--title", f"[lab:{p['category']}] {p['title']}",
+                   "--body", body, "--label", "stage:idea"],
+                  capture_output=True, text=True, check=True,
+              )
+              created.append(r.stdout.strip())
+          if created:
+              lines += ["### Improvement proposals filed"] + [f"- {u}" for u in created]
+          else:
+              lines += ["_No improvement proposals from this ticket._"]
+          pathlib.Path("agent-out/retro-comment.md").write_text("\n".join(lines) + "\n")
+          EOF
+          gh issue comment "$ISSUE" --body-file agent-out/retro-comment.md
+
+      - name: Note failure (advisory phase — nothing parks)
+        if: failure()
+        run: |
+          gh issue comment "$ISSUE" --body "🪞 Retro phase failed — see ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}. Advisory only; nothing is blocked. Re-add \`deployed\` to retry." || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: retro-run-${{ github.event.issue.number }}-${{ github.run_id }}
+          path: agent-out/
+          if-no-files-found: ignore

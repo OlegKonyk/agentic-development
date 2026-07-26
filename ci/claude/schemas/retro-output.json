@@ -1,0 +1,40 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["summary", "learning_log_entry", "proposals"],
+  "properties": {
+    "summary": {
+      "type": "string",
+      "description": "Two-to-four sentences: how the ticket actually went, by the evidence."
+    },
+    "learning_log_entry": {
+      "type": "string",
+      "description": "Draft docs/learning-log.md section, ready to append: '## YYYY-MM-DD — <title>' followed by numbered, evidence-backed lessons. Match the log's existing voice. Only durable lessons; a two-line entry is fine for an uneventful ticket."
+    },
+    "proposals": {
+      "type": "array",
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["title", "body", "category", "evidence"],
+        "properties": {
+          "title": { "type": "string", "description": "Imperative, concrete, one line" },
+          "body": {
+            "type": "string",
+            "description": "Problem, desired outcome, and rough shape of the change — written like a good stage:idea ticket"
+          },
+          "category": {
+            "type": "string",
+            "enum": ["pipeline", "charter", "app", "metrics", "governance"]
+          },
+          "evidence": {
+            "type": "string",
+            "description": "The specific run/comment/artifact facts that motivate this — numbers and links, not vibes"
+          }
+        }
+      }
+    }
+  }
+}
