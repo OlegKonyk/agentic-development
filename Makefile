@@ -19,7 +19,7 @@ stack-down:
 	docker compose down -v
 
 gateway-dev:
-	cd gateway && npx wrangler dev --port 8787
+	cd gateway && npx wrangler dev --port 8787 --var RATE_LIMIT:600
 
 seed:
 	uv run python -c "from qa_helpers.client import ApiClient; c = ApiClient(); c.reset(); c.seed()"
