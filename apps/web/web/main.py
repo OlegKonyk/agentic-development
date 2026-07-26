@@ -1,5 +1,6 @@
 """Taskboard web UI: server-rendered pages proxying the JSON API (v2, authed)."""
 
+import math
 import os
 import secrets
 from collections.abc import AsyncIterator
@@ -17,6 +18,9 @@ from starlette.middleware.sessions import SessionMiddleware
 
 STATUS_COLUMNS = ("todo", "doing", "done")
 NEXT_STATUS = {"todo": "doing", "doing": "done", "done": "done"}
+# The web passes `limit` explicitly rather than relying on the API default, so
+# a future API default change can't silently resize the board.
+BOARD_PAGE_SIZE = 20
 
 
 def normalize_status(value: str | None) -> str | None:
@@ -24,9 +28,23 @@ def normalize_status(value: str | None) -> str | None:
     return value if value in STATUS_COLUMNS else None
 
 
-def board_url(status: str | None) -> str:
-    """Board URL carrying the active filter; '/' when unfiltered."""
-    return f"/?status={status}" if status else "/"
+def parse_page(value: str | None) -> int:
+    """1-based page number; anything absent, blank, non-numeric or < 1 -> 1."""
+    with suppress(ValueError, TypeError):
+        page = int(value)
+        if page >= 1:
+            return page
+    return 1
+
+
+def board_url(status: str | None, page: int = 1) -> str:
+    """Board URL carrying the active filter and page; '/' when at defaults."""
+    params = []
+    if status:
+        params.append(f"status={status}")
+    if page != 1:
+        params.append(f"page={page}")
+    return f"/?{'&'.join(params)}" if params else "/"
 
 
 def filter_options(active: str | None) -> list[dict[str, object]]:
@@ -243,11 +261,15 @@ def create_app() -> FastAPI:
         return RedirectResponse(url="/login", status_code=303)
 
     @app.get("/", response_class=HTMLResponse)
-    async def index(request: Request, status: str | None = None) -> HTMLResponse:
+    async def index(
+        request: Request, status: str | None = None, page: str | None = None
+    ) -> HTMLResponse:
         token = require_token(request)
         active = normalize_status(status)
         visible = (active,) if active else STATUS_COLUMNS
         columns: dict[str, list[dict]] = {status: [] for status in STATUS_COLUMNS}
+        current = parse_page(page)
+        page_count = 1
         task_count = 0
         user_email: str | None = None
         api_error = False
@@ -257,13 +279,37 @@ def create_app() -> FastAPI:
                 raise SessionExpired
             me.raise_for_status()
             user_email = me.json()["email"]
-            resp = await api(request).get("/api/tasks", headers=bearer(token))
-            if resp.status_code == 401:
-                raise SessionExpired
-            resp.raise_for_status()
-            for task in resp.json():
+
+            async def fetch_page(current_page: int) -> dict:
+                params: dict[str, str | int] = {
+                    "limit": BOARD_PAGE_SIZE,
+                    "offset": (current_page - 1) * BOARD_PAGE_SIZE,
+                }
+                if active:
+                    params["status"] = active
+                resp = await api(request).get("/api/tasks", params=params, headers=bearer(token))
+                if resp.status_code == 401:
+                    raise SessionExpired
+                resp.raise_for_status()
+                return resp.json()
+
+            body = await fetch_page(current)
+            page_count = max(1, math.ceil(body["total"] / BOARD_PAGE_SIZE))
+            if current > page_count:
+                current = 1
+                body = await fetch_page(current)
+            for task in body["items"]:
                 columns.setdefault(task.get("status", "todo"), []).append(task)
-                task_count += 1
+            if active:
+                count_resp = await api(request).get(
+                    "/api/tasks", params={"limit": 1}, headers=bearer(token)
+                )
+                if count_resp.status_code == 401:
+                    raise SessionExpired
+                count_resp.raise_for_status()
+                task_count = count_resp.json()["total"]
+            else:
+                task_count = body["total"]
         except httpx.HTTPError:
             api_error = True
         # Skip the health round-trip when the tasks fetch already failed: a
@@ -286,6 +332,12 @@ def create_app() -> FastAPI:
                 "task_count": task_count,
                 "csrf": ensure_csrf(request),
                 "reminders_degraded": degraded,
+                "page": current,
+                "page_count": page_count,
+                "has_prev": current > 1,
+                "has_next": current < page_count,
+                "prev_url": board_url(active, current - 1),
+                "next_url": board_url(active, current + 1),
             },
         )
 
@@ -353,6 +405,7 @@ def create_app() -> FastAPI:
         task_id: int,
         csrf_token: Annotated[str, Form()] = "",
         status: Annotated[str, Form()] = "",
+        page: Annotated[str, Form()] = "",
     ) -> RedirectResponse:
         check_csrf(request, csrf_token)
         token = require_token(request)
@@ -371,7 +424,8 @@ def create_app() -> FastAPI:
                         raise SessionExpired
         except httpx.HTTPError:
             pass  # index will surface the api-error banner
-        return RedirectResponse(url=board_url(normalize_status(status)), status_code=303)
+        url = board_url(normalize_status(status), parse_page(page))
+        return RedirectResponse(url=url, status_code=303)
 
     @app.post("/tasks/{task_id}/delete")
     async def delete_task(
@@ -379,6 +433,7 @@ def create_app() -> FastAPI:
         task_id: int,
         csrf_token: Annotated[str, Form()] = "",
         status: Annotated[str, Form()] = "",
+        page: Annotated[str, Form()] = "",
     ) -> RedirectResponse:
         check_csrf(request, csrf_token)
         token = require_token(request)
@@ -388,7 +443,8 @@ def create_app() -> FastAPI:
                 raise SessionExpired
         except httpx.HTTPError:
             pass  # index will surface the api-error banner
-        return RedirectResponse(url=board_url(normalize_status(status)), status_code=303)
+        url = board_url(normalize_status(status), parse_page(page))
+        return RedirectResponse(url=url, status_code=303)
 
     @app.get("/healthz")
     async def healthz() -> dict[str, str]:

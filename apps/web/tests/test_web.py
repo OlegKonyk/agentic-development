@@ -22,6 +22,7 @@ from web.main import (
     format_due_at,
     normalize_status,
     parse_due_at,
+    parse_page,
     safe_next,
     title_rejected,
     to_rfc3339_z,
@@ -105,9 +106,23 @@ def mock_health(**kwargs: object) -> respx.Route:
     return respx.get(f"{API}/api/reminders/health").mock(**kwargs)
 
 
+def page_body(
+    items: list[dict], total: int | None = None, limit: int = 20, offset: int = 0
+) -> dict:
+    """The `{items, total, limit, offset}` envelope `GET /api/tasks` returns."""
+    return {
+        "items": items,
+        "total": total if total is not None else len(items),
+        "limit": limit,
+        "offset": offset,
+    }
+
+
 def mock_board() -> tuple[respx.Route, respx.Route]:
     me = respx.get(f"{API}/api/auth/me").mock(return_value=httpx.Response(200, json=ME))
-    tasks = respx.get(f"{API}/api/tasks").mock(return_value=httpx.Response(200, json=SEEDED))
+    tasks = respx.get(f"{API}/api/tasks").mock(
+        return_value=httpx.Response(200, json=page_body(SEEDED))
+    )
     mock_health()  # default healthy; tests that care re-mock the same pattern (respx replaces it)
     return me, tasks
 
@@ -186,6 +201,21 @@ def test_normalize_status_accepts_columns_only() -> None:
 def test_board_url_builds_filtered_and_plain_urls() -> None:
     assert board_url(None) == "/"
     assert board_url("doing") == "/?status=doing"
+    assert board_url(None, 1) == "/"
+    assert board_url("todo", 1) == "/?status=todo"
+    assert board_url(None, 2) == "/?page=2"
+    assert board_url("todo", 2) == "/?status=todo&page=2"
+
+
+@pytest.mark.parametrize("value", [None, "", "abc", "0", "-1", "9.5"])
+def test_parse_page_falls_back_to_one(value: str | None) -> None:
+    assert parse_page(value) == 1
+
+
+def test_parse_page_accepts_positive_integers() -> None:
+    assert parse_page("1") == 1
+    assert parse_page("2") == 2
+    assert parse_page("42") == 42
 
 
 def test_filter_options_marks_active_and_defaults_to_all() -> None:
@@ -427,7 +457,7 @@ def test_index_due_at_renders_human_label_not_raw_iso(client: TestClient) -> Non
     respx.get(f"{API}/api/auth/me").mock(return_value=httpx.Response(200, json=ME))
     due_at = "2026-07-25T12:34:56Z"
     task = {**SEEDED[0], "id": 10, "due_at": due_at}
-    respx.get(f"{API}/api/tasks").mock(return_value=httpx.Response(200, json=[task]))
+    respx.get(f"{API}/api/tasks").mock(return_value=httpx.Response(200, json=page_body([task])))
     mock_health()
 
     body = client.get("/").text
@@ -445,7 +475,7 @@ def test_index_overdue_badge_only_for_past_due(client: TestClient) -> None:
         {**SEEDED[0], "id": 12, "title": "Future due", "due_at": iso_in(3600)},
         {**SEEDED[0], "id": 13, "title": "No due date", "due_at": None},
     ]
-    respx.get(f"{API}/api/tasks").mock(return_value=httpx.Response(200, json=tasks))
+    respx.get(f"{API}/api/tasks").mock(return_value=httpx.Response(200, json=page_body(tasks)))
     mock_health()
 
     body = client.get("/").text
@@ -465,7 +495,7 @@ def test_index_orders_column_by_due_then_id(client: TestClient) -> None:
         {**SEEDED[0], "id": 22, "title": "B", "due_at": None, "status": "todo"},
         {**SEEDED[0], "id": 23, "title": "C", "due_at": iso_in(86400), "status": "todo"},
     ]
-    respx.get(f"{API}/api/tasks").mock(return_value=httpx.Response(200, json=tasks))
+    respx.get(f"{API}/api/tasks").mock(return_value=httpx.Response(200, json=page_body(tasks)))
     mock_health()
 
     body = client.get("/").text
@@ -484,7 +514,7 @@ def test_index_overdue_and_reminder_badges_are_independent(client: TestClient) -
         "due_at": "2020-01-01T00:00:00Z",
         "reminder_status": "pending",
     }
-    respx.get(f"{API}/api/tasks").mock(return_value=httpx.Response(200, json=[task]))
+    respx.get(f"{API}/api/tasks").mock(return_value=httpx.Response(200, json=page_body([task])))
     mock_health()
 
     body = client.get("/").text
@@ -842,6 +872,216 @@ def test_delete_without_filter_redirects_to_board(client: TestClient) -> None:
     assert resp.headers["location"] == "/"
 
 
+# --- board pagination --------------------------------------------------------
+
+
+def make_tasks(n: int, status: str = "todo") -> list[dict]:
+    return [
+        {
+            "id": i,
+            "title": f"Task {i}",
+            "description": "",
+            "status": status,
+            "due_at": None,
+            "reminder_status": "none",
+            "created_at": "2026-01-01T00:00:00Z",
+        }
+        for i in range(1, n + 1)
+    ]
+
+
+@respx.mock
+def test_board_requests_page_with_limit_and_offset(client: TestClient) -> None:
+    login(client)
+    respx.get(f"{API}/api/auth/me").mock(return_value=httpx.Response(200, json=ME))
+    tasks_route = respx.get(f"{API}/api/tasks").mock(
+        return_value=httpx.Response(200, json=page_body(make_tasks(20), total=25))
+    )
+    mock_health()
+
+    client.get("/?page=2")
+
+    params = tasks_route.calls.last.request.url.params
+    assert params["limit"] == "20"
+    assert params["offset"] == "20"
+
+
+@respx.mock
+def test_board_passes_status_filter_to_api(client: TestClient) -> None:
+    login(client)
+    respx.get(f"{API}/api/auth/me").mock(return_value=httpx.Response(200, json=ME))
+    tasks_route = respx.get(f"{API}/api/tasks").mock(
+        return_value=httpx.Response(200, json=page_body(make_tasks(3, "todo")))
+    )
+    mock_health()
+
+    client.get("/?status=todo")
+
+    assert tasks_route.calls[0].request.url.params["status"] == "todo"
+
+
+@respx.mock
+def test_pager_absent_on_single_page(client: TestClient) -> None:
+    login(client)
+    mock_board()
+
+    body = client.get("/").text
+
+    assert 'data-testid="pager"' not in body
+
+
+@respx.mock
+def test_pager_next_only_on_first_page(client: TestClient) -> None:
+    login(client)
+    respx.get(f"{API}/api/auth/me").mock(return_value=httpx.Response(200, json=ME))
+    respx.get(f"{API}/api/tasks").mock(
+        return_value=httpx.Response(200, json=page_body(make_tasks(20), total=25))
+    )
+    mock_health()
+
+    body = client.get("/").text
+
+    assert 'data-testid="pager"' in body
+    assert 'data-testid="pager-next"' in body
+    assert 'data-testid="pager-prev"' not in body
+
+
+@respx.mock
+def test_pager_prev_only_on_last_page(client: TestClient) -> None:
+    login(client)
+    respx.get(f"{API}/api/auth/me").mock(return_value=httpx.Response(200, json=ME))
+    respx.get(f"{API}/api/tasks").mock(
+        return_value=httpx.Response(200, json=page_body(make_tasks(5), total=25))
+    )
+    mock_health()
+
+    body = client.get("/?page=2").text
+
+    assert 'data-testid="pager"' in body
+    assert 'data-testid="pager-prev"' in body
+    assert 'data-testid="pager-next"' not in body
+
+
+@respx.mock
+def test_pager_links_preserve_status_filter(client: TestClient) -> None:
+    login(client)
+    respx.get(f"{API}/api/auth/me").mock(return_value=httpx.Response(200, json=ME))
+    respx.get(f"{API}/api/tasks").mock(
+        return_value=httpx.Response(200, json=page_body(make_tasks(20, "todo"), total=25))
+    )
+    mock_health()
+
+    body = client.get("/?status=todo").text
+
+    assert 'href="/?status=todo&amp;page=2"' in body
+
+
+@respx.mock
+def test_pager_status_text(client: TestClient) -> None:
+    login(client)
+    respx.get(f"{API}/api/auth/me").mock(return_value=httpx.Response(200, json=ME))
+    respx.get(f"{API}/api/tasks").mock(
+        return_value=httpx.Response(200, json=page_body(make_tasks(20), total=25))
+    )
+    mock_health()
+
+    body = client.get("/").text
+
+    assert 'data-testid="pager-status">Page 1 of 2<' in body
+
+
+@respx.mock
+def test_task_count_is_grand_total_when_filtered(client: TestClient) -> None:
+    login(client)
+    respx.get(f"{API}/api/auth/me").mock(return_value=httpx.Response(200, json=ME))
+    tasks_route = respx.get(f"{API}/api/tasks").mock(
+        side_effect=[
+            httpx.Response(200, json=page_body(make_tasks(5, "todo"), total=5)),
+            httpx.Response(200, json=page_body(make_tasks(1), total=30)),
+        ]
+    )
+    mock_health()
+
+    body = client.get("/?status=todo").text
+
+    assert 'data-testid="task-count">30<' in body
+    assert tasks_route.call_count == 2
+
+
+@pytest.mark.parametrize("value", ["", "abc", "0", "-1", "9.5"])
+@respx.mock
+def test_invalid_page_param_falls_back_to_first_page(client: TestClient, value: str) -> None:
+    login(client)
+    mock_board()
+
+    resp = client.get(f"/?page={value}")
+
+    assert resp.status_code == 200
+    assert 'data-testid="pager"' not in resp.text
+
+
+@respx.mock
+def test_out_of_range_page_refetches_first_page(client: TestClient) -> None:
+    login(client)
+    respx.get(f"{API}/api/auth/me").mock(return_value=httpx.Response(200, json=ME))
+    tasks_route = respx.get(f"{API}/api/tasks").mock(
+        return_value=httpx.Response(200, json=page_body(SEEDED, total=len(SEEDED)))
+    )
+    mock_health()
+
+    resp = client.get("/?page=5")
+
+    assert resp.status_code == 200
+    assert 'data-testid="pager"' not in resp.text
+    assert tasks_route.call_count == 2
+
+
+@respx.mock
+def test_advance_redirects_to_same_page_and_filter(client: TestClient) -> None:
+    csrf = login(client)
+    respx.get(f"{API}/api/tasks/1").mock(return_value=httpx.Response(200, json=SEEDED[0]))
+    respx.patch(f"{API}/api/tasks/1").mock(
+        return_value=httpx.Response(200, json={**SEEDED[0], "status": "doing"})
+    )
+
+    resp = client.post(
+        "/tasks/1/advance",
+        data={"csrf_token": csrf, "status": "todo", "page": "2"},
+        follow_redirects=False,
+    )
+
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/?status=todo&page=2"
+
+
+@respx.mock
+def test_delete_redirects_to_same_page_and_filter(client: TestClient) -> None:
+    csrf = login(client)
+    respx.delete(f"{API}/api/tasks/2").mock(return_value=httpx.Response(204))
+
+    resp = client.post(
+        "/tasks/2/delete",
+        data={"csrf_token": csrf, "status": "todo", "page": "2"},
+        follow_redirects=False,
+    )
+
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/?status=todo&page=2"
+
+
+@respx.mock
+def test_page_fetch_error_still_renders_api_error_banner(client: TestClient) -> None:
+    login(client)
+    respx.get(f"{API}/api/auth/me").mock(return_value=httpx.Response(200, json=ME))
+    respx.get(f"{API}/api/tasks").mock(side_effect=httpx.ConnectError("refused"))
+
+    resp = client.get("/?page=2")
+
+    assert resp.status_code == 200
+    assert 'data-testid="api-error"' in resp.text
+    assert 'data-testid="pager"' not in resp.text
+
+
 # --- new task --------------------------------------------------------------
 
 
@@ -1090,7 +1330,7 @@ def test_index_row_action_aria_labels_are_escaped(client: TestClient) -> None:
     login(client)
     respx.get(f"{API}/api/auth/me").mock(return_value=httpx.Response(200, json=ME))
     task = {**SEEDED[0], "title": '<script>"boom"</script>'}
-    respx.get(f"{API}/api/tasks").mock(return_value=httpx.Response(200, json=[task]))
+    respx.get(f"{API}/api/tasks").mock(return_value=httpx.Response(200, json=page_body([task])))
     mock_health()
 
     body = client.get("/").text
