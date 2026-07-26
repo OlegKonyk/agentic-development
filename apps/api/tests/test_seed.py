@@ -56,7 +56,7 @@ async def test_seeded_credentials_work(client: AsyncClient) -> None:
     token = await login(client, ALICE)
     resp = await client.get("/api/tasks", headers=bearer(token))
     assert resp.status_code == 200
-    assert [t["id"] for t in resp.json()] == [1, 2, 3]
+    assert [t["id"] for t in resp.json()["items"]] == [1, 2, 3]
 
 
 async def test_sequences_realigned_after_seed(client: AsyncClient) -> None:
@@ -75,4 +75,4 @@ async def test_seed_resets_extra_tasks(client: AsyncClient) -> None:
     await seed()
 
     listed = (await client.get("/api/tasks", headers=bearer(token))).json()
-    assert [t["id"] for t in listed] == [1, 2, 3]
+    assert [t["id"] for t in listed["items"]] == [1, 2, 3]

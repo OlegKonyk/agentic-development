@@ -10,7 +10,7 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic.json_schema import SkipJsonSchema
-from sqlalchemy import delete
+from sqlalchemy import delete, func
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -25,6 +25,7 @@ from app.models import (
     Status,
     Task,
     TaskCreate,
+    TaskPage,
     TaskRead,
     TaskUpdate,
     User,
@@ -38,6 +39,12 @@ from app.webhooks import router as webhooks_router
 # ge/le bound the id to the DB BIGINT range; out-of-range ids 422 instead of
 # overflowing the driver (found by contract fuzzing in v1).
 TaskId = Annotated[int, Path(ge=1, le=2**31 - 1)]
+
+DEFAULT_LIMIT = 20
+MAX_LIMIT = 100
+# Same class of bound as TaskId: an unbounded offset overflows asyncpg's bind
+# on the OFFSET parameter into a 500 under contract fuzzing.
+MAX_OFFSET = 2**31 - 1
 
 BAD_BODY = {400: {"description": "Malformed request body"}}
 NOT_FOUND = {404: {"description": "Task not found"}}
@@ -57,18 +64,26 @@ async def _get_owned_task(session: AsyncSession, user: User, task_id: int) -> Ta
     return task
 
 
-@tasks_router.get("", response_model=list[TaskRead])
+@tasks_router.get("", response_model=TaskPage)
 async def list_tasks(
     session: SessionDep,
     user: CurrentUser,
     # SkipJsonSchema keeps null out of the OpenAPI schema: the param is
     # optional-by-absence, not nullable-by-value (contract-tested).
     status: Annotated[Status | SkipJsonSchema[None], Query()] = None,
-) -> list[Task]:
-    statement = select(Task).where(Task.owner_id == user.id).order_by(col(Task.id))
+    limit: Annotated[int, Query(ge=1, le=MAX_LIMIT)] = DEFAULT_LIMIT,
+    offset: Annotated[int, Query(ge=0, le=MAX_OFFSET)] = 0,
+) -> TaskPage:
+    filters = [Task.owner_id == user.id]
     if status is not None:
-        statement = statement.where(Task.status == status)
-    return list((await session.exec(statement)).all())
+        filters.append(Task.status == status)
+    total = (await session.exec(select(func.count()).select_from(Task).where(*filters))).one()
+    statement = select(Task).where(*filters).order_by(col(Task.id)).limit(limit).offset(offset)
+    tasks = (await session.exec(statement)).all()
+    # TaskPage is constructed directly (not returned via response_model
+    # conversion), so TaskRead needs an explicit from_attributes read here.
+    items = [TaskRead.model_validate(task, from_attributes=True) for task in tasks]
+    return TaskPage(items=items, total=total, limit=limit, offset=offset)
 
 
 @tasks_router.post("", response_model=TaskRead, status_code=201, responses=BAD_BODY)

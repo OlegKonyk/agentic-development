@@ -39,12 +39,14 @@
         <form method="post" action="/tasks/{{ task.id }}/advance">
           <input type="hidden" name="csrf_token" value="{{ csrf }}">
           <input type="hidden" name="status" value="{{ active_status or '' }}">
+          <input type="hidden" name="page" value="{{ page }}">
           <button type="submit" class="btn-advance" data-testid="advance-btn"
                   aria-label="Advance {{ task.title }}">Advance</button>
         </form>
         <form method="post" action="/tasks/{{ task.id }}/delete">
           <input type="hidden" name="csrf_token" value="{{ csrf }}">
           <input type="hidden" name="status" value="{{ active_status or '' }}">
+          <input type="hidden" name="page" value="{{ page }}">
           <button type="submit" class="btn-delete" data-testid="delete-btn"
                   aria-label="Delete {{ task.title }}">Delete</button>
         </form>
@@ -54,4 +56,13 @@
   </section>
   {% endfor %}
 </div>
+{% if page_count > 1 %}
+<nav class="pager" data-testid="pager" aria-label="Task pages">
+  {% if has_prev %}<a data-testid="pager-prev" rel="prev" href="{{ prev_url }}"
+     aria-label="Previous page">Previous</a>{% endif %}
+  <span data-testid="pager-status">Page {{ page }} of {{ page_count }}</span>
+  {% if has_next %}<a data-testid="pager-next" rel="next" href="{{ next_url }}"
+     aria-label="Next page">Next</a>{% endif %}
+</nav>
+{% endif %}
 {% endblock %}

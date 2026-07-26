@@ -100,7 +100,7 @@ async def test_create_whitespace_only_title_422(
     resp = await client.post("/api/tasks", json={"title": title}, headers=alice_headers)
     assert resp.status_code == 422
     listed = await client.get("/api/tasks", headers=alice_headers)
-    assert listed.json() == []
+    assert listed.json()["items"] == []
 
 
 async def test_blank_title_422_names_title_field(client: AsyncClient, alice_headers: dict) -> None:
@@ -146,13 +146,13 @@ async def test_list_tasks_and_status_filter(client: AsyncClient, alice_headers: 
 
     all_resp = await client.get("/api/tasks", headers=alice_headers)
     assert all_resp.status_code == 200
-    assert [t["id"] for t in all_resp.json()] == [a["id"], b["id"]]
+    assert [t["id"] for t in all_resp.json()["items"]] == [a["id"], b["id"]]
 
     todo = await client.get("/api/tasks", params={"status": "todo"}, headers=alice_headers)
-    assert [t["id"] for t in todo.json()] == [a["id"]]
+    assert [t["id"] for t in todo.json()["items"]] == [a["id"]]
 
     done = await client.get("/api/tasks", params={"status": "done"}, headers=alice_headers)
-    assert done.json() == []
+    assert done.json()["items"] == []
 
 
 async def test_list_tasks_invalid_status_filter(client: AsyncClient, alice_headers: dict) -> None:
@@ -164,9 +164,9 @@ async def test_owner_scoping(client: AsyncClient, alice_headers: dict, bob_heade
     alice_task = await create(client, alice_headers, title="alice's")
     bob_task = await create(client, bob_headers, title="bob's")
 
-    alice_list = (await client.get("/api/tasks", headers=alice_headers)).json()
+    alice_list = (await client.get("/api/tasks", headers=alice_headers)).json()["items"]
     assert [t["id"] for t in alice_list] == [alice_task["id"]]
-    bob_list = (await client.get("/api/tasks", headers=bob_headers)).json()
+    bob_list = (await client.get("/api/tasks", headers=bob_headers)).json()["items"]
     assert [t["id"] for t in bob_list] == [bob_task["id"]]
 
 
@@ -305,3 +305,107 @@ async def test_patch_surrogate_status_echo_is_422_not_500(
     )
     assert resp.status_code == 422
     assert resp.json()["detail"]
+
+
+# --- pagination (issue #8) --------------------------------------------------
+
+
+async def test_list_returns_envelope_shape(client: AsyncClient, alice_headers: dict) -> None:
+    await create(client, alice_headers, title="only task")
+    resp = await client.get("/api/tasks", headers=alice_headers)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert set(body.keys()) == {"items", "total", "limit", "offset"}
+    assert body["limit"] == 20
+    assert body["offset"] == 0
+
+
+async def test_list_default_limit_caps_page(client: AsyncClient, alice_headers: dict) -> None:
+    for i in range(25):
+        await create(client, alice_headers, title=f"task {i}")
+    resp = await client.get("/api/tasks", headers=alice_headers)
+    body = resp.json()
+    assert len(body["items"]) == 20
+    assert body["total"] == 25
+
+
+async def test_list_limit_offset_slice(client: AsyncClient, alice_headers: dict) -> None:
+    tasks = [await create(client, alice_headers, title=f"task {i}") for i in range(12)]
+    resp = await client.get("/api/tasks", params={"limit": 5, "offset": 5}, headers=alice_headers)
+    body = resp.json()
+    assert [t["id"] for t in body["items"]] == [t["id"] for t in tasks[5:10]]
+    assert body["limit"] == 5
+    assert body["offset"] == 5
+
+
+async def test_list_total_stable_across_pages(client: AsyncClient, alice_headers: dict) -> None:
+    for i in range(12):
+        await create(client, alice_headers, title=f"task {i}")
+    first = await client.get("/api/tasks", params={"limit": 5, "offset": 0}, headers=alice_headers)
+    second = await client.get("/api/tasks", params={"limit": 5, "offset": 5}, headers=alice_headers)
+    assert first.json()["total"] == second.json()["total"] == 12
+
+
+async def test_list_offset_past_end_is_empty_200(client: AsyncClient, alice_headers: dict) -> None:
+    for i in range(3):
+        await create(client, alice_headers, title=f"task {i}")
+    resp = await client.get("/api/tasks", params={"offset": 100}, headers=alice_headers)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["items"] == []
+    assert body["total"] == 3
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        {"limit": 0},
+        {"limit": 101},
+        {"limit": -1},
+        {"offset": -1},
+        {"limit": "abc"},
+        {"offset": 1.5},
+    ],
+)
+async def test_list_invalid_pagination_params_422(
+    client: AsyncClient, alice_headers: dict, params: dict
+) -> None:
+    resp = await client.get("/api/tasks", params=params, headers=alice_headers)
+    assert resp.status_code == 422
+
+
+async def test_list_huge_offset_422_not_500(client: AsyncClient, alice_headers: dict) -> None:
+    resp = await client.get("/api/tasks", params={"offset": 2**63}, headers=alice_headers)
+    assert resp.status_code == 422
+
+
+async def test_list_status_filter_scopes_page_and_total(
+    client: AsyncClient, alice_headers: dict
+) -> None:
+    for i in range(8):
+        await create(client, alice_headers, title=f"todo {i}")
+    for i in range(2):
+        done = await create(client, alice_headers, title=f"done {i}")
+        await client.patch(
+            f"/api/tasks/{done['id']}", json={"status": "done"}, headers=alice_headers
+        )
+
+    resp = await client.get(
+        "/api/tasks", params={"status": "todo", "limit": 5}, headers=alice_headers
+    )
+    body = resp.json()
+    assert len(body["items"]) == 5
+    assert all(t["status"] == "todo" for t in body["items"])
+    assert body["total"] == 8
+
+
+async def test_list_pagination_is_owner_scoped(
+    client: AsyncClient, alice_headers: dict, bob_headers: dict
+) -> None:
+    alice_tasks = [await create(client, alice_headers, title=f"alice {i}") for i in range(3)]
+    await create(client, bob_headers, title="bob's")
+
+    resp = await client.get("/api/tasks", params={"limit": 100, "offset": 0}, headers=alice_headers)
+    body = resp.json()
+    assert [t["id"] for t in body["items"]] == [t["id"] for t in alice_tasks]
+    assert body["total"] == 3
