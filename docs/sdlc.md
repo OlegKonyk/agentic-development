@@ -96,6 +96,7 @@ trigger (labeled event, name-guarded)
 | Dev rework | `phase-dev.yml` | PR labeled `qa-failed` | `/dev:rework` | `dev-report.json` | push fixes, PR relabeled `qa-ready` |
 | QA | `phase-qa.yml` | PR labeled `qa-ready` | `/qa:qa-run` | `qa-verdict.json` | status `qa/agent-verdict` on head SHA; PR → `qa-passed` or `qa-failed` |
 | Deploy | `deploy.yml` | push to `main` | none (deterministic) | — | gateway deployed (or simulated), issue → `stage:done` + `deployed` |
+| Retro | `phase-retro.yml` | issue labeled `deployed` | `/retro:retro-run` | `retro-output.json` | advisory: retro comment on the ticket + ≤3 `stage:idea` proposal issues; no transition |
 
 Phase outputs are durable: the product spec and the design (including numbered
 acceptance criteria `AC-1..AC-n`) are posted as issue comments and appended to
@@ -240,6 +241,31 @@ claude -p "<skill invocation + context>" \
   mandates a privileged edit (e.g. a QA-charter change), the human
   orchestrator applies it directly; the rework skill tells the agent to route
   such findings through `concerns` instead of fixing them.
+
+### The retro phase (the lab's self-improvement loop)
+
+When a ticket earns `deployed`, `phase-retro.yml` runs a read-only agent over
+the ticket's full trajectory (issue + merged-PR comments and label timelines —
+these carry every phase's cost, turns, denials, verdicts, and parks). It
+returns a schema-validated draft learning-log entry plus at most three
+improvement proposals; a deterministic step posts the draft as a
+`<!-- sdlc:retro -->` comment and files the proposals as `stage:idea` issues.
+
+Governance, by construction rather than convention:
+
+- **Advisory only.** The phase blocks nothing, labels nothing on the source
+  ticket, and a failure posts a comment instead of parking — retro can never
+  hold a shipped ticket hostage.
+- **The loop cannot close itself.** The whole job runs on `GITHUB_TOKEN`
+  (whose events never chain), `stage:idea` triggers no phase, and proposals
+  enter the pipeline only when a human applies `stage:spec` — the identical
+  entry gate features pass through. Landing the drafted learning-log entry on
+  `main` is likewise a human/orchestrator act.
+- **Bounded.** ≤3 proposals per run, standard loop guard, 30-turn/$3 caps.
+
+This is the experiment method of `docs/lab-charter.md` folded into the state
+machine: every shipped ticket produces its own evidence-backed critique, and
+the pipeline improves through the same gated flow as the product it builds.
 
 ### Issue → PR resolution
 

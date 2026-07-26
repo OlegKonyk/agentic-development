@@ -10,6 +10,8 @@ on. The pipeline is the product; the apps are the test bed.
   you change behavior, update the spec in the same PR.
 - `docs/apps.md` — app contracts (ports, routes, data-testids). QA suites and
   agent prompts depend on these exactly.
+- `docs/lab-charter.md` — the experiment method (rounds, metrics, evidence
+  rules); per-seat playbooks live in `docs/playbooks/`.
 
 ## Layout
 

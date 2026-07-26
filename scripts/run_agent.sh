@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Single entry point for every Claude agent invocation in the pipeline.
 # Usage: run_agent.sh <phase> <prompt...>
-#   phase ∈ product | design | dev | qa   (selects plugin, schema, model, limits, tools)
+#   phase ∈ product | design | dev | qa | retro   (selects plugin, schema, model, limits, tools)
 # Exit codes: 0 = agent ran and produced schema-valid structured output
 #             1 = agent/infrastructure failure (no usable output)
 # The *content* of the output (e.g. a QA verdict of "fail") is the caller's business.
@@ -39,6 +39,12 @@ case "$PHASE" in
   design)
     MODEL="${DESIGN_MODEL:-opus}"; MAX_TURNS=30; MAX_BUDGET="${DESIGN_BUDGET:-3}"
     SCHEMA="design-output.json"
+    TOOLS="Read,Glob,Grep"
+    ;;
+  retro)
+    # Advisory analyst: reads the shipped ticket's artifacts, changes nothing.
+    MODEL="${RETRO_MODEL:-sonnet}"; MAX_TURNS=30; MAX_BUDGET="${RETRO_BUDGET:-3}"
+    SCHEMA="retro-output.json"
     TOOLS="Read,Glob,Grep"
     ;;
   dev)
