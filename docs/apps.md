@@ -50,8 +50,19 @@ Auth (open): `POST /api/auth/login {email,password}` → 200 `{token, expires_at
 Tasks (require `Authorization: Bearer <token>`, else 401; scoped to owner;
 404 for other users' task ids — no existence leak): same CRUD surface as v1
 plus `due_at` (optional RFC3339, must be future on create/update else 422) and
-read-only `reminder_status`. A whitespace-only `title` on create or update →
-422, same validation-error shape as `due_at`. A JSON string carrying an
+read-only `reminder_status`. `GET /api/tasks` returns a paginated envelope
+`{items: [Task...], total, limit, offset}` — not a bare array. `limit`
+(default 20, `1..100`) and `offset` (default 0, `0..2147483647`) are optional
+query params, non-nullable in the schema, and compose with `status`: both the
+returned page and `total` describe the filtered set. `total` ignores
+`limit`/`offset` and is stable across every page of the same query; `limit`/
+`offset` in the response echo the effective values (including defaults). An
+`offset` past the end of the result set is `200` with `items: []` and the
+correct `total` — never 404. Out-of-bounds or non-integer `limit`/`offset` →
+422, same validation-error shape as `due_at`/`title` (the `offset` upper bound
+guards the same asyncpg bind-overflow class as the `TaskId` path bound).
+Ordering is unchanged (ascending task id). A whitespace-only `title` on create
+or update → 422, same validation-error shape as `due_at`. A JSON string carrying an
 unpaired UTF-16 surrogate or NUL (`\u0000`) — valid JSON, unstorable in
 Postgres — → 422 on every model-validated body route (login and tasks); the
 raw-body webhook route neutralizes them instead (strict `json.loads` → 400,
@@ -136,9 +147,29 @@ advance/delete as v1, `GET /healthz`. All forms carry hidden `csrf_token`
 
 `GET /` also accepts an optional `status` query param (`todo|doing|done`);
 any other value, including absent or empty, renders the full three-column
-board with HTTP 200 (never a 422 — this is a web-layer view filter, `GET
-/api/tasks` keeps its exact request/response shape and is called unfiltered
-either way). `GET /` fetches `/api/reminders/health` (dedicated 2s timeout)
+board with HTTP 200 (never a 422 — this is a web-layer view filter). When a
+filter is active the board now passes `status` through to `GET /api/tasks`
+(previously always unfiltered), so a paged, filtered board doesn't render a
+page that's empty for the active column.
+
+`GET /` also accepts an optional `page` query param (1-based). Absent, blank,
+non-numeric, `< 1`, or beyond the last page → renders page 1 with HTTP 200,
+never a 422 — same lenient posture as `status`. The board fetches one page of
+`BOARD_PAGE_SIZE = 20` tasks (`GET /api/tasks?limit=20&offset=(page-1)*20`,
+plus `status` when filtered). A pager renders after the board, present only
+when there is more than one page: `data-testid="pager"` (`<nav aria-label="Task
+pages">`, absent from the DOM — not merely hidden — on a single-page board),
+`data-testid="pager-prev"` (present only when `page > 1`, `aria-label="Previous
+page"`, `rel="prev"`), `data-testid="pager-next"` (present only when `page <
+page_count`, `aria-label="Next page"`, `rel="next"`), `data-testid="pager-status"`
+(text `Page {n} of {m}`). Pager links carry no `aria-current` — the board's
+single `aria-current="page"` stays on the active status-filter link. Pager
+URLs preserve the active filter (`/?status=todo&page=2`); page-1 URLs omit
+`page` entirely, so `/` and `/?status=todo` stay byte-identical to today.
+`task-count` is unchanged in meaning: the user's grand total across all
+statuses, independent of page and filter. Each row's advance/delete form
+carries a hidden `name="page"` input; both actions redirect back to the same
+page and filter. `GET /` fetches `/api/reminders/health` (dedicated 2s timeout)
 after the tasks fetch — skipped when the tasks fetch already failed — and
 renders a degraded-service banner (`data-testid="reminder-degraded-banner"`,
 `role="status"`, no `tabindex`/`autofocus`) as the first element of the board

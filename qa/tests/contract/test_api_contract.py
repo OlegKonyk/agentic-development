@@ -52,6 +52,32 @@ def test_api_contract(case: schemathesis.Case, bearer_headers: dict[str, str]) -
     )
 
 
+def test_list_tasks_pagination_is_documented(api_url: str) -> None:
+    spec = httpx.get(f"{api_url}/openapi.json", timeout=10.0).json()
+    params = {p["name"]: p for p in spec["paths"]["/api/tasks"]["get"]["parameters"]}
+
+    limit_schema = params["limit"]["schema"]
+    assert limit_schema["type"] == "integer"
+    assert limit_schema["default"] == 20
+    assert limit_schema["minimum"] == 1
+    assert limit_schema["maximum"] == 100
+    assert "null" not in limit_schema.get("type", [])
+
+    offset_schema = params["offset"]["schema"]
+    assert offset_schema["type"] == "integer"
+    assert offset_schema["default"] == 0
+    assert offset_schema["minimum"] == 0
+    assert offset_schema["maximum"] == 2147483647
+    assert "null" not in offset_schema.get("type", [])
+
+    page_schema = spec["paths"]["/api/tasks"]["get"]["responses"]["200"]["content"][
+        "application/json"
+    ]["schema"]
+    ref = page_schema["$ref"].split("/")[-1]
+    task_page = spec["components"]["schemas"][ref]
+    assert set(task_page["required"]) == {"items", "total", "limit", "offset"}
+
+
 def test_reminder_health_operation_is_documented_and_401s_unauthenticated(api_url: str) -> None:
     spec = httpx.get(f"{api_url}/openapi.json", timeout=10.0).json()
     assert "/api/reminders/health" in spec["paths"]

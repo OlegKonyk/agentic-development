@@ -142,9 +142,23 @@ class ApiClient:
 
     # -- tasks --------------------------------------------------------------
 
-    def list_tasks(self, status: str | None = None) -> list[dict[str, Any]]:
-        params = {"status": status} if status else None
-        resp = self.request("GET", "/api/tasks", params=params)
+    def list_tasks(
+        self, status: str | None = None, limit: int | None = None, offset: int | None = None
+    ) -> list[dict[str, Any]]:
+        return self.page_tasks(status, limit, offset)["items"]
+
+    def page_tasks(
+        self, status: str | None = None, limit: int | None = None, offset: int | None = None
+    ) -> dict[str, Any]:
+        """Full `{items, total, limit, offset}` envelope from `GET /api/tasks`."""
+        params: dict[str, Any] = {}
+        if status:
+            params["status"] = status
+        if limit is not None:
+            params["limit"] = limit
+        if offset is not None:
+            params["offset"] = offset
+        resp = self.request("GET", "/api/tasks", params=params or None)
         resp.raise_for_status()
         return resp.json()
 
@@ -176,9 +190,17 @@ class ApiClient:
         self.request("DELETE", f"/api/tasks/{task_id}").raise_for_status()
 
     def delete_all_tasks(self) -> None:
-        """Per-test isolation without touching sessions (unlike reset())."""
-        for task in self.list_tasks():
-            self.delete_task(task["id"])
+        """Per-test isolation without touching sessions (unlike reset()).
+
+        Pages through in batches of 100: a prior test may have created more
+        tasks than one unpaginated `list_tasks()` call would return.
+        """
+        while True:
+            batch = self.list_tasks(limit=100)
+            if not batch:
+                break
+            for task in batch:
+                self.delete_task(task["id"])
 
     def seed(self) -> list[dict[str, Any]]:
         """Create the fixed seed tasks via the API; returns the created tasks.
