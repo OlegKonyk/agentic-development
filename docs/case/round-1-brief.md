@@ -32,6 +32,8 @@ clock across the three pipeline tickets.
 | #20 | ~$0 agent, <30 min | trivial; retro's first live run felt like the real product | ~14 min idea→deployed, $0 pipeline agents, retro $0.76/20t; retro filed 2 valid proposals (#22, #23) incl. auditing the orchestrator's own route choice |
 | #4 | 0–1 rework, $4–6, ≤1.5 h, ships | feature trivially clean; ALL friction was environmental | ~51 min stage:spec→merge; ~$11.3 agent total (product 0.47 + design 1.47 + dev + QA 3.34/2.36/2.67 + rework 0.53/≈0.5); 2 rework label cycles (both correct no-op parks), 2 unplanned parks, verdicts failed/failed/passed; 14/14 ACs verified in every run; zero product defects |
 
+| #7 | 1 rework, $6–9, ≤2.5 h, ships | the "risky" fault-injection ticket felt effortless — design pre-answered every trap | 31 min stage:spec→merge; product 0.50 + design 1.50 + dev ? + QA 2.87; 0 rework, 0 parks, first-pass qa-passed; 11/11 ACs incl. live WireMock/Toxiproxy fault-injection; migration + new endpoint + banner in one pass |
+
 _#4 cost ran ~2× forecast entirely on environment: the 45-test e2e suite
 outgrew the gateway's fixed 60-req/10s budget (root-caused by the QA agent
 twice, fixed on main as #25). The gate refused honestly both times; rework
