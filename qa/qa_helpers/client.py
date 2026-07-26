@@ -130,6 +130,16 @@ class ApiClient:
         resp.raise_for_status()
         return int(resp.json()["enqueued"])
 
+    def reminder_health(self) -> dict[str, Any]:
+        """GET /api/reminders/health; `{"state": "healthy"|"degraded", "window_seconds": int}`."""
+        resp = self.request("GET", "/api/reminders/health")
+        resp.raise_for_status()
+        return resp.json()
+
+    def clear_reminder_deliveries(self) -> None:
+        """Health-only reset: wipes delivery history, leaves sessions and tasks intact."""
+        self.request("POST", "/api/testing/clear-reminder-deliveries").raise_for_status()
+
     # -- tasks --------------------------------------------------------------
 
     def list_tasks(self, status: str | None = None) -> list[dict[str, Any]]:

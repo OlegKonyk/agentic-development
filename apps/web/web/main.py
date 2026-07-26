@@ -49,6 +49,10 @@ TEMPLATES_DIR = Path(__file__).parent / "templates"
 API_UNAVAILABLE_MESSAGE = "The task API is unavailable. Please try again shortly."
 INVALID_TITLE_MESSAGE = "Title must contain at least one non-whitespace character."
 INVALID_INPUT_MESSAGE = "Please check the task details and try again."
+REMINDER_HEALTH_TIMEOUT = 2.0
+DEGRADED_REMINDERS_MESSAGE = (
+    "Reminder delivery is currently degraded — your reminders may be delayed."
+)
 
 
 class AuthRedirect(Exception):
@@ -129,6 +133,21 @@ def title_rejected(detail: object) -> bool:
     if not isinstance(detail, list):
         return False
     return any(isinstance(item, dict) and "title" in (item.get("loc") or []) for item in detail)
+
+
+async def reminders_degraded(client: httpx.AsyncClient, token: str) -> bool:
+    """True only on a definite `degraded`; any doubt reads as healthy."""
+    try:
+        resp = await client.get(
+            "/api/reminders/health",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=REMINDER_HEALTH_TIMEOUT,
+        )
+        if resp.status_code != 200:
+            return False
+        return resp.json().get("state") == "degraded"
+    except (httpx.HTTPError, ValueError):
+        return False
 
 
 def create_app() -> FastAPI:
@@ -247,6 +266,10 @@ def create_app() -> FastAPI:
                 task_count += 1
         except httpx.HTTPError:
             api_error = True
+        # Skip the health round-trip when the tasks fetch already failed: a
+        # second doomed call adds nothing, and AC-8 requires the api-error
+        # banner to show without the degraded banner alongside it.
+        degraded = False if api_error else await reminders_degraded(api(request), token)
         now = datetime.now(UTC)
         columns = {status: decorate_tasks(tasks, now) for status, tasks in columns.items()}
         return templates.TemplateResponse(
@@ -262,6 +285,7 @@ def create_app() -> FastAPI:
                 "user_email": user_email,
                 "task_count": task_count,
                 "csrf": ensure_csrf(request),
+                "reminders_degraded": degraded,
             },
         )
 

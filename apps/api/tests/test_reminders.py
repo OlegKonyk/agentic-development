@@ -5,9 +5,10 @@ import httpx
 import pytest
 import respx
 from app import db, jobs
-from app.models import Task
+from app.models import ReminderDelivery, Task
 from httpx import AsyncClient
 from sqlalchemy import update
+from sqlmodel import select
 from tenacity import wait_none
 
 pytestmark = pytest.mark.anyio
@@ -135,6 +136,47 @@ async def test_retry_then_success_keeps_pending(
         await client.post(TRIGGER)
         assert route.call_count == 2
     assert await reminder_status(client, alice_headers, task_id) == "pending"
+
+
+async def deliveries_for(task_id: int) -> list[str]:
+    async with db.session_scope() as session:
+        statement = select(ReminderDelivery.outcome).where(ReminderDelivery.task_id == task_id)
+        return list((await session.exec(statement)).all())
+
+
+async def test_exhausted_retries_record_failed_delivery(
+    client: AsyncClient, alice_headers: dict[str, str]
+) -> None:
+    task_id = await create_due_task(client, alice_headers)
+    with respx.mock(assert_all_called=False) as vendor:
+        vendor.post(VENDOR_ENDPOINT).mock(return_value=httpx.Response(500))
+        await client.post(TRIGGER)
+    assert await deliveries_for(task_id) == ["failed"]
+
+
+async def test_task_deleted_mid_flight_still_records_failure(
+    client: AsyncClient, alice_headers: dict[str, str]
+) -> None:
+    """A task deleted while its vendor POST is in flight still contributes its
+    failure to the health signal — the delivery row carries no FK to the task."""
+    task_id = await create_due_task(client, alice_headers)
+    deleted = False
+
+    async def fail_and_delete_task(request: httpx.Request) -> httpx.Response:
+        nonlocal deleted
+        if not deleted:
+            deleted = True
+            async with db.session_scope() as session:
+                task = await session.get(Task, task_id)
+                if task is not None:
+                    await session.delete(task)
+                    await session.commit()
+        return httpx.Response(500)
+
+    with respx.mock(assert_all_called=False) as vendor:
+        vendor.post(VENDOR_ENDPOINT).mock(side_effect=fail_and_delete_task)
+        await client.post(TRIGGER)
+    assert await deliveries_for(task_id) == ["failed"]
 
 
 async def test_find_due_reminders_filters(client: AsyncClient, alice_headers: dict) -> None:

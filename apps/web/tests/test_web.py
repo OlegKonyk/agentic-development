@@ -14,6 +14,7 @@ import pytest
 import respx
 from fastapi.testclient import TestClient
 from web.main import (
+    DEGRADED_REMINDERS_MESSAGE,
     board_url,
     create_app,
     decorate_tasks,
@@ -99,9 +100,15 @@ def login(client: TestClient) -> str:
     return csrf
 
 
+def mock_health(**kwargs: object) -> respx.Route:
+    kwargs.setdefault("return_value", httpx.Response(200, json={"state": "healthy"}))
+    return respx.get(f"{API}/api/reminders/health").mock(**kwargs)
+
+
 def mock_board() -> tuple[respx.Route, respx.Route]:
     me = respx.get(f"{API}/api/auth/me").mock(return_value=httpx.Response(200, json=ME))
     tasks = respx.get(f"{API}/api/tasks").mock(return_value=httpx.Response(200, json=SEEDED))
+    mock_health()  # default healthy; tests that care re-mock the same pattern (respx replaces it)
     return me, tasks
 
 
@@ -421,6 +428,7 @@ def test_index_due_at_renders_human_label_not_raw_iso(client: TestClient) -> Non
     due_at = "2026-07-25T12:34:56Z"
     task = {**SEEDED[0], "id": 10, "due_at": due_at}
     respx.get(f"{API}/api/tasks").mock(return_value=httpx.Response(200, json=[task]))
+    mock_health()
 
     body = client.get("/").text
 
@@ -438,6 +446,7 @@ def test_index_overdue_badge_only_for_past_due(client: TestClient) -> None:
         {**SEEDED[0], "id": 13, "title": "No due date", "due_at": None},
     ]
     respx.get(f"{API}/api/tasks").mock(return_value=httpx.Response(200, json=tasks))
+    mock_health()
 
     body = client.get("/").text
 
@@ -457,6 +466,7 @@ def test_index_orders_column_by_due_then_id(client: TestClient) -> None:
         {**SEEDED[0], "id": 23, "title": "C", "due_at": iso_in(86400), "status": "todo"},
     ]
     respx.get(f"{API}/api/tasks").mock(return_value=httpx.Response(200, json=tasks))
+    mock_health()
 
     body = client.get("/").text
 
@@ -475,6 +485,7 @@ def test_index_overdue_and_reminder_badges_are_independent(client: TestClient) -
         "reminder_status": "pending",
     }
     respx.get(f"{API}/api/tasks").mock(return_value=httpx.Response(200, json=[task]))
+    mock_health()
 
     body = client.get("/").text
 
@@ -494,6 +505,148 @@ def test_index_shows_error_banner_when_api_down(client: TestClient) -> None:
     assert resp.status_code == 200
     assert 'data-testid="api-error"' in resp.text
     assert "The task API is unavailable. Please try again shortly." in resp.text
+
+
+# --- reminder degraded banner ------------------------------------------------
+
+
+@respx.mock
+def test_board_shows_degraded_banner_when_health_degraded(client: TestClient) -> None:
+    login(client)
+    mock_board()
+    mock_health(return_value=httpx.Response(200, json={"state": "degraded"}))
+
+    resp = client.get("/")
+
+    assert resp.status_code == 200
+    assert 'data-testid="reminder-degraded-banner"' in resp.text
+    assert DEGRADED_REMINDERS_MESSAGE in resp.text
+
+
+@respx.mock
+def test_board_omits_degraded_banner_when_healthy(client: TestClient) -> None:
+    login(client)
+    mock_board()
+    mock_health(return_value=httpx.Response(200, json={"state": "healthy"}))
+
+    resp = client.get("/")
+
+    assert resp.status_code == 200
+    assert 'data-testid="reminder-degraded-banner"' not in resp.text
+
+
+@respx.mock
+def test_degraded_banner_absent_on_health_500(client: TestClient) -> None:
+    login(client)
+    mock_board()
+    mock_health(return_value=httpx.Response(500))
+
+    resp = client.get("/")
+
+    assert resp.status_code == 200
+    assert 'data-testid="reminder-degraded-banner"' not in resp.text
+    assert 'data-testid="api-error"' not in resp.text
+
+
+@respx.mock
+def test_degraded_banner_absent_on_health_connect_error(client: TestClient) -> None:
+    login(client)
+    mock_board()
+    mock_health(side_effect=httpx.ConnectError("refused"))
+
+    resp = client.get("/")
+
+    assert resp.status_code == 200
+    assert 'data-testid="reminder-degraded-banner"' not in resp.text
+    assert 'data-testid="api-error"' not in resp.text
+
+
+@respx.mock
+def test_degraded_banner_absent_on_health_malformed_body(client: TestClient) -> None:
+    login(client)
+    mock_board()
+    mock_health(return_value=httpx.Response(200, text="not json"))
+
+    resp = client.get("/")
+
+    assert resp.status_code == 200
+    assert 'data-testid="reminder-degraded-banner"' not in resp.text
+    assert 'data-testid="api-error"' not in resp.text
+
+
+@respx.mock
+def test_degraded_banner_absent_on_health_401(client: TestClient) -> None:
+    login(client)
+    mock_board()
+    mock_health(return_value=httpx.Response(401))
+
+    resp = client.get("/")
+
+    assert resp.status_code == 200
+    assert 'data-testid="reminder-degraded-banner"' not in resp.text
+    assert 'data-testid="api-error"' not in resp.text
+
+
+@respx.mock
+def test_health_not_requested_when_tasks_api_down(client: TestClient) -> None:
+    login(client)
+    respx.get(f"{API}/api/auth/me").mock(return_value=httpx.Response(200, json=ME))
+    respx.get(f"{API}/api/tasks").mock(side_effect=httpx.ConnectError("refused"))
+    health_route = mock_health()
+
+    resp = client.get("/")
+
+    assert resp.status_code == 200
+    assert not health_route.called
+    assert 'data-testid="api-error"' in resp.text
+    assert 'data-testid="reminder-degraded-banner"' not in resp.text
+
+
+@respx.mock
+def test_degraded_banner_precedes_status_filter_and_board_renders(client: TestClient) -> None:
+    login(client)
+    mock_board()
+    mock_health(return_value=httpx.Response(200, json={"state": "degraded"}))
+
+    resp = client.get("/")
+    body = resp.text
+
+    assert body.index('data-testid="reminder-degraded-banner"') < body.index(
+        'data-testid="status-filter"'
+    )
+    assert 'data-testid="task-list"' in body
+    assert body.count('data-testid="task-row"') == 3
+    assert 'data-testid="task-count">3<' in body
+    assert 'data-testid="advance-btn"' in body
+    assert 'data-testid="delete-btn"' in body
+
+
+@respx.mock
+def test_degraded_banner_markup_is_role_status(client: TestClient) -> None:
+    login(client)
+    mock_board()
+    mock_health(return_value=httpx.Response(200, json={"state": "degraded"}))
+
+    body = client.get("/").text
+    start = body.index('data-testid="reminder-degraded-banner"')
+    tag_start = body.rindex("<div", 0, start)
+    tag_end = body.index(">", start)
+    tag = body[tag_start:tag_end]
+
+    assert 'role="status"' in tag
+    assert "tabindex" not in tag
+    assert "autofocus" not in tag
+
+
+@respx.mock
+def test_new_and_login_pages_never_render_degraded_banner(client: TestClient) -> None:
+    login(client)
+
+    login_body = client.get("/login").text
+    new_body = client.get("/new").text
+
+    assert 'data-testid="reminder-degraded-banner"' not in login_body
+    assert 'data-testid="reminder-degraded-banner"' not in new_body
 
 
 # --- board status filter -----------------------------------------------------
@@ -938,6 +1091,7 @@ def test_index_row_action_aria_labels_are_escaped(client: TestClient) -> None:
     respx.get(f"{API}/api/auth/me").mock(return_value=httpx.Response(200, json=ME))
     task = {**SEEDED[0], "title": '<script>"boom"</script>'}
     respx.get(f"{API}/api/tasks").mock(return_value=httpx.Response(200, json=[task]))
+    mock_health()
 
     body = client.get("/").text
 

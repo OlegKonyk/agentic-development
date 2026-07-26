@@ -11,6 +11,7 @@ from tenacity.wait import wait_base
 
 from app import db
 from app.models import Task, rfc3339
+from app.reminders import record_delivery
 from app.tkq import broker
 
 VENDOR_TIMEOUT_SECONDS = 2.0
@@ -61,13 +62,19 @@ async def send_reminder(task_id: int) -> None:
         await _post_notification(payload)
         # Success keeps the task `pending`: the vendor's delivery webhook is
         # what flips it to `sent`.
+        async with db.session_scope() as session:
+            await record_delivery(session, task_id, "accepted")
+            await session.commit()
     except httpx.HTTPError:
         async with db.session_scope() as session:
+            # Recorded unconditionally, even if the task was deleted mid-flight:
+            # the health signal reflects the attempt, not the task's survival.
+            await record_delivery(session, task_id, "failed")
             task = await session.get(Task, task_id)
             if task is not None and task.reminder_status == "pending":
                 task.reminder_status = "failed"
                 session.add(task)
-                await session.commit()
+            await session.commit()
 
 
 async def find_due_reminders(session: AsyncSession, as_of: datetime | None = None) -> list[Task]:
