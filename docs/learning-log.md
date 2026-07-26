@@ -193,3 +193,30 @@ run — rev-parse can't resolve parents in a depth-1 checkout — and was fixed
 empirically against a real shallow merge-ref fetch (#18). Verify enforcement
 code the way we verify app code: against the environment it runs in, not the
 one we reason about.
+
+## 2026-07-26 — Round 1: three tickets, one environment defect, the loop closes
+
+The lab's first full round (ledger + forecasts predefined; brief in
+docs/case/round-1-brief.md). #4 filter, #7 degraded banner, #8 pagination:
+$21.72, 584 turns, 1.88 h wall, 2 rework cycles, 2 parks — all inside
+forecast, and the difficulty forecast inverted measured cost (consolidating
+the three per-ticket retro drafts):
+
+1. **Environment, not features, drove all variance.** The "trivial" control
+   case cost 2.6× the "hardest" ticket because it ran first into the e2e
+   suite outgrowing the gateway's fixed rate budget (fixed as #25). The QA
+   agent root-caused it identically twice; rework correctly refused to fix a
+   flake in app code twice; the gate refused honestly twice. Every layer did
+   its job and the system still spent ~$5.6 learning one fact — the cost of
+   having no "this failure class is not rework-fixable" escalation (#26/#28).
+2. **The design-wins rule survived its first live disagreement.** On #8 the
+   PM called header-over-envelope; design argued the envelope and was right;
+   the documented authority rule resolved it without a human override. But
+   the answer-window race (product→design never waits for PM answers) means
+   alignment on #4/#7 was luck of timing, not process.
+3. **The retro loop generated its own backlog and its own failure mode.**
+   Nine proposals across four retro runs, all evidence-backed, three of them
+   duplicates of each other (no cross-run memory) — the human gate absorbed
+   the dedupe. Two proposals (#22/#23) were accepted and landed at round
+   close; the retro that audited the orchestrator's own bypass route on #20
+   remains the round's best argument that the loop audits everyone.

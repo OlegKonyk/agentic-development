@@ -95,7 +95,10 @@ Formalized as the **retro phase** (`docs/sdlc.md`, phase table): every
 trajectory and drafts the learning-log entry plus ≤3 improvement proposals,
 filed as `stage:idea` issues with evidence. A human applies `stage:spec` to
 accept one — the identical entry gate features get — and the improvement then
-flows through the same spec→design→dev→QA pipeline as product work. The loop
+flows through the same spec→design→dev→QA pipeline as product work, or, when
+the change lives in pipeline-privileged paths the pipeline may not
+self-modify, through an orchestrator PR with CI and a break-glass merge (the
+documented bypass route; #20 was the first). The loop
 cannot close itself by construction (advisory phase, non-chaining token,
 human gate). This is the mechanism behind the one trait the successful 5% of
 pilots share: a system that learns from its own feedback

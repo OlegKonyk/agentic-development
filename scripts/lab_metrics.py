@@ -204,6 +204,9 @@ def collect_issue(issue: int) -> dict[str, Any]:
     except (RuntimeError, json.JSONDecodeError) as exc:
         notes.append(f"cost-comment parsing failed: {exc}")
 
+    if row["lead_time_hours"] is None and not row["qa_verdicts"] and row["pr"] is not None:
+        notes.append("orchestrator-bypass lane (no pipeline phases)")
+
     return row
 
 

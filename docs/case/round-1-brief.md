@@ -1,7 +1,8 @@
 # Round 1 brief — calibration tickets, all seats simulated
 
-_Status: IN PROGRESS. Ledger and forecasts committed before any ticket ran
-(see git history for the timestamp); results filled as tickets close._
+_Status: CLOSED 2026-07-26. Ledger and forecasts were committed before any
+ticket ran (git history has the timestamp); results below are measured by
+`scripts/lab_metrics.py` from pipeline telemetry._
 
 ## Study design
 
@@ -39,17 +40,58 @@ outgrew the gateway's fixed 60-req/10s budget (root-caused by the QA agent
 twice, fixed on main as #25). The gate refused honestly both times; rework
 correctly declined to "fix" a flake in app code both times._
 
+**Round totals (measured):** $21.72 agent spend, 584 turns, 1.88 h pipeline
+wall clock, 2 rework label cycles, 2 unplanned parks — inside the forecast
+envelope ($17–26, ≤4 rework) and far under the ≤7 h wall-clock bound.
+**Headline:** forecast difficulty inverted measured cost (#4 "trivial" cost
+$11.12; #8 "hardest" cost $4.36). Variance came from which ticket first hit a
+latent environment defect, not from feature complexity — DORA's
+amplifier thesis in miniature.
+
 ## Failure ledger
 
-_TBD._
+- **Gateway rate-limit incident (~$5.6 of #4's spend).** The 45-test e2e
+  suite outgrew the gateway's fixed 60-req/10s budget; two QA runs failed on
+  an unrelated test, two rework runs correctly no-op'd and parked. The QA
+  agent root-caused it identically twice (`RATE_LIMIT=60`); fixed on main
+  (#25, env-configurable, test profile 600). The gate refused honestly both
+  times — zero false passes — but the pipeline had no way to say "this
+  failure class is not rework-fixable," burning ~$1 and two parks to
+  rediscover it (proposals #26/#28 address this).
+- **PM answer-window race, 3/3 tickets.** Product→design transitions don't
+  wait for open-question answers. #4 and #7 aligned anyway; #8 diverged on
+  the highest-impact call (envelope vs header) and the documented
+  design-wins rule resolved it cleanly — but by luck of reasoning quality,
+  not by process guarantee.
+- **Retro duplicate proposals.** Three retro runs independently filed the
+  same dev-footer idea (#27/#30/#33): retro has no cross-run memory, so the
+  human gate absorbed the dedupe — as designed, but it costs attention per
+  shipped ticket.
 
 ## What changed because of this round
 
-_TBD (retro proposals accepted, playbook edits)._
+- #25 gateway `RATE_LIMIT` env-configurable (test profile 600) — root-cause
+  fix for the round's only systematic failure.
+- #21 per-phase cost telemetry (landed at round open, first full use here:
+  14 cost comments across the 4 tickets, no undercount).
+- Retro proposals #22 (charter names the bypass route) and #23
+  (`lab_metrics` marks bypass-lane tickets) accepted and landed at close;
+  #30/#33 closed as duplicates of #27.
+- Queued for a human entry-gate decision: #26 (skip re-verification on
+  repeat-identical infra flake), #27 (dev cost footer on the PR), #28
+  (suite-size-aware capacity check), #31 (finer fault-injection lever), #34
+  (QA evidence must name coverage when substituting an easier case).
 
 ## Recommendation
 
-_TBD._
+Proceed to Round 2 (team pilot) without structural changes: the operating
+model held for a full round with one person in all six seats, gates refused
+honestly under a systematic environment failure, and the retro loop generated
+a real, evidence-backed backlog. Before Round 2, consider landing #26 and
+#28 (both directly reduce the cost of the failure mode Round 1 actually hit)
+and decide whether the product→design transition should wait for PM answers
+when a spec marks its open questions material — the answer-race is benign
+only while design keeps out-reasoning the PM.
 
 ## Limitations
 
