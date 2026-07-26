@@ -63,8 +63,13 @@ where preserved prompts made the process auditable).
 
 ## Metrics
 
-All computed deterministically from GitHub events and run artifacts by
-`scripts/lab_metrics.py` — no surveys in the measurement path. Definitions:
+Telemetry-first: lead time, rework, parks, verdicts, human label events, and
+agent cost/turns are computed today by `scripts/lab_metrics.py` from GitHub
+events (cost currently undercounts — only QA phases post cost comments; see
+the baseline's provenance note). Deployment frequency, change-failure rate,
+MTTR, gate false-pass rate, and the churn canary are derived per round from
+the same event record plus defect attribution; the single self-reported
+number in the system is reviewer minutes. Definitions:
 
 | Metric | Definition | Why |
 |---|---|---|
@@ -76,7 +81,7 @@ All computed deterministically from GitHub events and run artifacts by
 | Unplanned human interventions | `needs-human` parks per ticket, by cause | planned gates are the design; unplanned parks are the signal |
 | Cost per merged change | Σ agent $ + turns across phases / merged PR | unit economics; run_agent.sh logs it |
 | Human review minutes per agent PR | reviewer-reported, per PR | review burden is the documented emerging bottleneck |
-| Gate false-pass rate | escaped defects originating in gate-passed merges / gate-passed merges | the gate's integrity; currently 0 across 5 tickets |
+| Gate false-pass rate | escaped defects originating in gate-passed merges / gate-passed merges | the gate's integrity; 1/5 at baseline (the NUL-in-email 500 shipped in #3's merge, surfaced in #14's QA) |
 | Churn canary | % of agent-written code revised within 2 weeks | maintainability warning ([GitClear](https://www.gitclear.com/coding_on_copilot_data_shows_ais_downward_pressure_on_code_quality)) |
 
 Banned vanity metrics: lines of code, % of code AI-written, suggestion
@@ -94,7 +99,7 @@ flows through the same spec→design→dev→QA pipeline as product work. The lo
 cannot close itself by construction (advisory phase, non-chaining token,
 human gate). This is the mechanism behind the one trait the successful 5% of
 pilots share: a system that learns from its own feedback
-([MIT NANDA](https://www.forbes.com/sites/jasonsnyder/2025/08/26/mit-finds-95-of-genai-pilots)),
+([MIT NANDA](https://www.forbes.com/sites/jasonsnyder/2025/08/26/mit-finds-95-of-genai-pilots-fail-because-companies-avoid-friction/)),
 kept inside the governance that has held so far.
 
 ## Case outputs
@@ -146,5 +151,5 @@ guidance](https://www.anthropic.com/engineering/building-effective-agents) and
 (role shift to reviewer/orchestrator; verification loops),
 [Answer.AI](https://www.answer.ai/posts/2025-01-08-devin) and
 [Cloudflare](https://github.com/cloudflare/workers-oauth-provider) (pilot and
-lab-notebook structure). The full annotated bibliography lives with the
-Round 0 research artifacts.
+lab-notebook structure). The full annotated bibliography is committed at
+`docs/case/round-0-sources.md`.

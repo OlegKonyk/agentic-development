@@ -25,7 +25,8 @@ auditable — keep them that way.
 - **Artifacts you review:** the QA verdict comment (AC-by-AC evidence,
   findings with repro steps), the diff, the per-phase cost echoes, dev-report
   concerns.
-- **Numbers you own:** per-phase `--max-turns` / `--max-budget-usd` caps, job
+- **Numbers you own (decision authority):** per-phase `--max-turns` / `--max-budget-usd`
+  caps — QA proposes with denial evidence, infra implements and verifies, you decide — job
   timeouts, `MAX_PHASE_EVENTS`, and the 3-cycle QA↔rework limit. They live in
   privileged paths (`.github/workflows/`, `scripts/`), so changes land as
   orchestrator PRs — you set the values, you don't hand-edit in place.

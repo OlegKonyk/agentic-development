@@ -26,7 +26,7 @@ You own the verification signal every agent in this pipeline iterates against. A
 2. Tier-1 runs deterministically: full 8-service stack boots, seed runs, then unit / contract / e2e / webhooks / resilience. Artifacts upload regardless of outcome.
 3. Tier-2: one bounded `claude -p` run executes your charter — verifies each `AC-n` against the running app, runs the exploratory pass (console/network messages after every flow, fault injection via WireMock/Toxiproxy, the a11y keyboard pass), triages tier-1 failures as bug/infra/flake.
 4. `qa_gate.py` decides, not the agent: tier-1 green AND agent `pass` → `qa-passed`. Any tier-1 red → `qa-failed` regardless of agent opinion (on the stale-tree incident the agent triaged the failure as out-of-scope; the gate still refused the pass — correctly). A `fail` finding without `repro_steps` is downgraded to `blocked` → `needs-human`. No valid structured output → `needs-human`.
-5. Your discretionary work starts here. On `qa-passed`: audit the evidence table before anyone merges — "verified" must name what the agent did and saw, not restate the AC. On `qa-failed`: confirm the repro is real before rework burns budget on it. On `needs-human` with `error_max_turns`: **read `permission_denials` first**. Repeated denials = stuck agent, fix the sandbox; zero denials with steady progress = the charter outgrew the cap, raise it (that is how QA went 80 → 120 turns).
+5. Your discretionary work starts here. On `qa-passed`: audit the evidence table before anyone merges — "verified" must name what the agent did and saw, not restate the AC. On `qa-failed`: confirm the repro is real before rework burns budget on it. On `needs-human` with `error_max_turns`: **read `permission_denials` first**. Repeated denials = stuck agent, fix the sandbox; zero denials with steady progress = the charter outgrew the cap; propose the raise with the denial data (the dev manager decides, infra lands it — that is how QA went 80 → 120 turns).
 6. Compound: promote every real agent-found repro into a permanent tier-1 regression test (the stale-pool 500, the latency-tolerance regression, and the surrogate 500 all live there now). Log the cycle in `docs/learning-log.md`.
 
 ## What changes vs. the traditional role
@@ -38,7 +38,7 @@ You own the verification signal every agent in this pipeline iterates against. A
 
 ## Failure modes to watch
 
-- **Silent false passes.** Agents produce superficially successful runs while [introducing regressions that tests never catch](https://arxiv.org/pdf/2605.30777) — this is why the exploratory charter mandates reading console messages and network requests after every flow, where three of this lab's real defects surfaced.
+- **Silent false passes.** Agents produce superficially successful runs and [fabricated success reports](https://arxiv.org/pdf/2605.30777) — this is why the exploratory charter mandates reading console messages and network requests after every flow, where three of this lab's real defects surfaced.
 - **Trusting perceived confidence.** Experienced developers in METR's RCT were [19% slower with AI while believing they were 20% faster](https://metr.org/blog/2025-07-10-early-2025-ai-experienced-os-dev-study/); the same gap applies to an agent's verdict prose. Only the evidence table counts.
 - **Misreading `error_max_turns`.** A fully-consumed budget was "stuck agent" on PR #10 (25 denials/run) and "charter outgrew the cap" on PR #13 (zero denials). Same symptom, opposite fixes. Denials first, always.
 - **Charter creep.** Every probe you add runs on every ticket forever. Prune the charter like code.
@@ -46,7 +46,7 @@ You own the verification signal every agent in this pipeline iterates against. A
 
 ## Metrics you watch
 
-- **Gate false-pass rate**: production/later-found defects per gate-passed merge, [trended over 30/60/90 days](https://daily.dev/blog/defect-density-and-escape-rate-agile-metrics-guide-2024/). The one number that says whether your signal is real. Current streak: zero false passes across all logged cycles — guard it.
+- **Gate false-pass rate**: production/later-found defects per gate-passed merge, [trended over 30/60/90 days](https://daily.dev/blog/defect-density-and-escape-rate-agile-metrics-guide-2024/). The one number that says whether your signal is real. Be precise about the two layers: the verdict layer has never emitted a false pass within a ticket's own QA cycles, but one defect HAS escaped a gate-passed merge (the NUL-in-email 500 shipped in #3, surfaced only when #14's contract run happened to generate the input) — baseline escape rate 1/5, driven by the contract tier's probabilistic generation. Drive it down; never restate it as zero.
 - QA↔rework cycles per ticket (loop-guard caps at 3) and verdict distribution (pass/fail/blocked/needs-human).
 - Per-run `permission_denials`, `num_turns` vs cap, and cost per QA run (cap $8).
 - Tier-1 triage mix: a rising `flake`/`infra` share means the suites are decaying; `bug` share is the suites working.

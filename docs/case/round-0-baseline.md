@@ -9,6 +9,8 @@
 | #9 | #13 | 1.97 | 3 | 2 | qa-failed, qa-passed | 262 | 6.94 | 3 | 8 |
 | **total** | — | 7.26 | 12 | 8 | — | 927 | 27.64 | 15 | 41 |
 
+_Totals sum non-null cells only._
+
 ## Notes
 - #3: no 'stage:spec' labeled event on the issue
 

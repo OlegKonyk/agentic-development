@@ -261,7 +261,9 @@ Governance, by construction rather than convention:
   enter the pipeline only when a human applies `stage:spec` — the identical
   entry gate features pass through. Landing the drafted learning-log entry on
   `main` is likewise a human/orchestrator act.
-- **Bounded.** ≤3 proposals per run, standard loop guard, 30-turn/$3 caps.
+- **Bounded.** ≤3 proposals per run, 30-turn/$3 caps, and a loop guard whose
+  counted pattern includes `deployed` itself — repeated human re-adds of the
+  label cannot re-run retro past the guard's ceiling.
 
 This is the experiment method of `docs/lab-charter.md` folded into the state
 machine: every shipped ticket produces its own evidence-backed critique, and

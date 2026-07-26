@@ -11,9 +11,11 @@ agent spend. Nothing runs until you say so, and nothing you say vaguely gets un-
 
 ## Your touchpoints in the pipeline
 
-- **Labels you apply**: `stage:spec` on an issue (the entry gate — the only pipeline label
-  a human writes). Re-adding it is the retry mechanism after you answer open questions.
-  You never apply `stage:design`/`stage:dev`/`qa-*`; the orchestrator App does.
+- **Labels you apply**: `stage:spec` on an issue — the entry gate for **product tickets**.
+  (Retro-filed lab proposals enter via the seat that owns the affected area: QA tooling →
+  QA engineer, pipeline mechanics → infra, disputes → dev manager.) Re-adding `stage:spec`
+  is the retry mechanism after you answer open questions. Other humans also re-add phase
+  labels (`qa-ready` etc.) to unpark tickets; forward transitions are the App's alone.
 - **Artifacts you review**: the product agent's spec comment (`spec_markdown`, draft
   `AC-n` list, `open_questions`, `estimated_scope`) and — critically — the design
   comment's **final** AC list. Per the QA charter, design's ACs win over the spec's if
@@ -94,6 +96,6 @@ level on all of these ([Digital Applied](https://www.digitalapplied.com/blog/age
   requirements beyond the ticket plus obvious product coherence, silently expand scope
   past a scope OUT line, or edit the issue form / product charter (privileged paths,
   enforced by deny rules and the pre-push diff guard).
-- You must never delegate: the entry-gate decision, answers to `open_questions`, the
+- You must never delegate: the entry-gate decision for product tickets, answers to `open_questions`, the
   final-AC review at design time, and the park/kill call on a stuck ticket. An agent can
   draft any of these; the judgment — and the spend — stays yours.

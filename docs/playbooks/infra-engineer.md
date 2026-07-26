@@ -13,7 +13,9 @@ you own its determinism.
 
 - **Files you own**: `.github/workflows/*` (the state machine — the App has no
   `workflows: write`, so these are human-only by construction), `scripts/*`
-  (`transition.sh`, `loop_guard.sh`, `qa_gate.py`, `run_agent.sh`, `state_lint.py`),
+  (`transition.sh`, `loop_guard.sh`, `run_agent.sh`, `state_lint.py`; for
+  `qa_gate.py` and the QA schemas you own the *machinery* while the QA engineer
+  authors the gate rules and evidence semantics — you review and land),
   `ci/claude/settings/ci-settings.json` (permission deny rules), docker compose +
   seed + gateway dev config, the `main` ruleset, and the `sdlc-orchestrator` App
   identity and key. Every workflow change updates `docs/sdlc.md` in the same PR.
@@ -25,8 +27,10 @@ you own its determinism.
   with only the orchestrator's own push steps authenticating explicitly.
 - **Labels**: you don't drive tickets, you unpark them. `needs-human` from infra
   causes (stale merge ref, guard trips, stack-boot failures) is yours; fix the road,
-  then re-add the phase label via `scripts/transition.sh` with the App token — never
-  by hand with `GITHUB_TOKEN`.
+  then re-add the phase label — by hand in the GitHub UI (human label events chain
+  fine) or via `scripts/transition.sh` with the App token from automation. What never
+  works is scripting labels with `GITHUB_TOKEN`: its events are suppressed and the
+  next phase silently never fires.
 - **Artifacts you review**: per-run JSON payloads (`total_cost_usd`, `num_turns`,
   `permission_denials`), tier-1 JUnit/traces, guard step logs.
 
@@ -106,5 +110,5 @@ secrets, no Cloudflare token in QA, `browser_run_code_unsafe` disallowed, fork P
 refused); or apply pipeline labels / choose state transitions.
 
 You must not delegate: authoring or reviewing the enforcement code that constrains
-the agents; verifying that enforcement against its real runtime; raising caps or
+the agents; verifying that enforcement against its real runtime; implementing cap or
 budgets (a human decision informed by denial data); or break-glass bypass merges.

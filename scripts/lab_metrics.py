@@ -144,19 +144,21 @@ def collect_issue(issue: int) -> dict[str, Any]:
     }
 
     issue_events: list[dict[str, str]] = []
+    timeline_ok = True
     try:
         issue_events = label_events(gh_api_paged(f"repos/{REPO}/issues/{issue}/timeline"))
     except (RuntimeError, json.JSONDecodeError, KeyError) as exc:
+        timeline_ok = False
         notes.append(f"issue timeline unavailable: {exc}")
 
     spec_at = first_labeled_at(issue_events, "stage:spec")
     deployed_at = first_labeled_at(issue_events, "deployed")
     if spec_at and deployed_at:
         row["lead_time_hours"] = round((deployed_at - spec_at).total_seconds() / 3600, 2)
-    else:
-        if issue_events and not spec_at:
+    elif timeline_ok:
+        if not spec_at:
             notes.append("no 'stage:spec' labeled event on the issue")
-        if issue_events and not deployed_at:
+        if not deployed_at:
             notes.append("no 'deployed' labeled event on the issue")
 
     pr: int | None = None
@@ -194,12 +196,10 @@ def collect_issue(issue: int) -> dict[str, Any]:
     try:
         targets = [issue] + ([pr] if pr is not None else [])
         cost, turns, parsed = parse_cost_comments(targets)
-        row["agent_cost_usd"], row["agent_turns"], row["cost_comments_parsed"] = (
-            cost,
-            turns,
-            parsed,
-        )
-        if parsed == 0:
+        row["cost_comments_parsed"] = parsed
+        if parsed:
+            row["agent_cost_usd"], row["agent_turns"] = cost, turns
+        else:
             notes.append("no agent-cost comments matched either known format")
     except (RuntimeError, json.JSONDecodeError) as exc:
         notes.append(f"cost-comment parsing failed: {exc}")
@@ -229,8 +229,9 @@ def render_markdown(rows: list[dict[str, Any]]) -> str:
         "|---|---|---|---|---|---|---|---|---|---|",
     ]
     for r in rows:
+        pr_cell = f"#{r['pr']}" if r["pr"] is not None else None
         lines.append(
-            f"| #{r['issue']} | {fmt(r['pr'] and f'#{r["pr"]}')} | {fmt(r['lead_time_hours'])} "
+            f"| #{r['issue']} | {fmt(pr_cell)} | {fmt(r['lead_time_hours'])} "
             f"| {fmt(r['rework_cycles'])} | {fmt(r['needs_human_count'])} "
             f"| {fmt(r['qa_verdicts'])} | {fmt(r['agent_turns'])} | {fmt(r['agent_cost_usd'])} "
             f"| {fmt(r['cost_comments_parsed'])} | {fmt(r['human_touch_events'])} |"
@@ -249,6 +250,10 @@ def render_markdown(rows: list[dict[str, Any]]) -> str:
         f"| {fmt(total('agent_cost_usd'))} | {fmt(total('cost_comments_parsed'))} "
         f"| {fmt(total('human_touch_events'))} |"
     )
+
+    numeric = ("lead_time_hours", "rework_cycles", "needs_human_count", "agent_turns")
+    if any(r[k] is None for r in rows for k in numeric):
+        lines += ["", "_Totals sum non-null cells only._"]
 
     noted = [r for r in rows if r["notes"]]
     if noted:

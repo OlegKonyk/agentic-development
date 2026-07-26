@@ -34,23 +34,26 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Loop guard
+        # Include 'deployed' in the counted pattern: retro re-triggers on every
+        # re-add of that label, and the default stage:/qa- pattern would never
+        # count them, leaving retro effectively unbounded.
         run: |
           chmod +x scripts/*.sh
-          scripts/loop_guard.sh "$ISSUE"
+          scripts/loop_guard.sh "$ISSUE" '^(stage:|qa-|deployed)'
 
       - name: Gather ticket trajectory
         run: |
           mkdir -p context agent-out
           gh issue view "$ISSUE" --json number,title,body,labels,comments,closedAt > context/issue.json
-          gh api "repos/${GITHUB_REPOSITORY}/issues/${ISSUE}/timeline" --paginate > context/issue-timeline.json
+          gh api "repos/${GITHUB_REPOSITORY}/issues/${ISSUE}/timeline" --paginate --slurp > context/issue-timeline.json
           PR=$(gh api graphql \
             -f query='query($owner:String!,$repo:String!,$n:Int!){repository(owner:$owner,name:$repo){issue(number:$n){closedByPullRequestsReferences(first:10,includeClosedPrs:true){nodes{number state}}}}}' \
             -f owner="${GITHUB_REPOSITORY%/*}" -f repo="${GITHUB_REPOSITORY#*/}" -F n="$ISSUE" \
             --jq '[.data.repository.issue.closedByPullRequestsReferences.nodes[] | select(.state=="MERGED")][0].number // empty')
           if [ -n "$PR" ]; then
             gh pr view "$PR" --json number,title,body,files,mergedAt > context/pr.json
-            gh api "repos/${GITHUB_REPOSITORY}/issues/${PR}/comments" --paginate > context/pr-comments.json
-            gh api "repos/${GITHUB_REPOSITORY}/issues/${PR}/timeline" --paginate > context/pr-timeline.json
+            gh api "repos/${GITHUB_REPOSITORY}/issues/${PR}/comments" --paginate --slurp > context/pr-comments.json
+            gh api "repos/${GITHUB_REPOSITORY}/issues/${PR}/timeline" --paginate --slurp > context/pr-timeline.json
           else
             echo '{"warning": "no merged PR found for this issue"}' > context/pr.json
           fi
@@ -84,9 +87,10 @@ jobs:
               "",
               "### Draft learning-log entry",
               "",
-              "```markdown",
+              # Four backticks: the drafted entry may itself contain code fences.
+              "````markdown",
               out["learning_log_entry"].strip(),
-              "```",
+              "````",
               "",
           ]
           created = []
