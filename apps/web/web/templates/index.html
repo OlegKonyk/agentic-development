@@ -6,6 +6,11 @@
 {% endif %}
 {% endblock %}
 {% block content %}
+{% if reminders_degraded %}
+<div class="banner-degraded" role="status" data-testid="reminder-degraded-banner">
+  Reminder delivery is currently degraded — your reminders may be delayed.
+</div>
+{% endif %}
 <nav class="filters" data-testid="status-filter" aria-label="Filter tasks by status">
   {% for option in filters %}
   <a class="filter{% if option.active %} active{% endif %}" href="{{ option.href }}"
