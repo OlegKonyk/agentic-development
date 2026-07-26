@@ -40,7 +40,7 @@ async def test_reset_wipes_state_but_keeps_users(client: AsyncClient) -> None:
     assert (await client.get("/api/auth/me", headers=bearer(token))).status_code == 401
     # Users survive: login works again, and the board is empty.
     fresh = await login(client, ALICE)
-    assert (await client.get("/api/tasks", headers=bearer(fresh))).json() == []
+    assert (await client.get("/api/tasks", headers=bearer(fresh))).json()["items"] == []
     async with db.session_scope() as session:
         assert (await session.exec(select(WebhookEvent))).all() == []
         assert len((await session.exec(select(User))).all()) == 2
@@ -96,7 +96,7 @@ async def test_clear_reminder_deliveries_returns_204_and_keeps_sessions(
     # Bearer minted before the call still authenticates; task is untouched.
     assert (await client.get("/api/auth/me", headers=bearer(token))).status_code == 200
     tasks = await client.get("/api/tasks", headers=bearer(token))
-    assert len(tasks.json()) == 1
+    assert len(tasks.json()["items"]) == 1
     health = await client.get("/api/reminders/health", headers=bearer(token))
     assert health.json()["state"] == "healthy"
 

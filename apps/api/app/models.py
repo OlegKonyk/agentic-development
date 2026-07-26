@@ -149,6 +149,13 @@ class TaskRead(BaseModel):
         return None if value is None else rfc3339(value)
 
 
+class TaskPage(BaseModel):
+    items: list[TaskRead]
+    total: int
+    limit: int
+    offset: int
+
+
 class ReminderHealthRead(BaseModel):
     state: ReminderHealthState
     window_seconds: int
