@@ -220,3 +220,46 @@ the three per-ticket retro drafts):
    the dedupe. Two proposals (#22/#23) were accepted and landed at round
    close; the retro that audited the orchestrator's own bypass route on #20
    remains the round's best argument that the loop audits everyone.
+
+## 2026-07-27 — Round 2 readiness: two ways an agentic pipeline lies to you
+
+Landing five accepted retro proposals (PR #35) produced two failures that are
+more interesting than the features:
+
+1. **A fix for one problem silently disabled the feature it was fixing.** The
+   repeat-failure guard (#26) reads the previous verdict comment to decide
+   whether a failure is a known-benign repeat. An earlier retro nit had
+   pointed out that `gh api --paginate` writes concatenated JSON arrays, so
+   this run's fetch used `--slurp` — which returns a list of *pages*, not a
+   list of comments. The parser crashed on every invocation. Because the step
+   is `continue-on-error` (deliberately: a broken guard must never block QA),
+   CI stayed green and the guard would have read as healthy forever. Worse,
+   it crashed *after* writing the signature and *before* writing the decision
+   file, so every verdict comment would have carried `"signature": null` and
+   disarmed the following run too. Adversarial review caught it by running the
+   guard against a real slurped payload from PR #24 — not by reading it.
+   Three defenses now: both payload shapes accepted, the decision file written
+   even on exception (the file is the contract, not the exit code), and 20
+   pinned tests in CI covering both dangerous directions — never a pass, never
+   a silent no-op.
+2. **`git add -A` is a hole in the privileged-path boundary.** A design agent
+   asked for a *draft* wrote `docs/case/round-2-ledger.md` directly into the
+   working tree; the orchestrator's `git add -A` swept that unreviewed file
+   into the merged PR. A later fact-check found ~15 errors in it, including a
+   wrong arithmetic mean presented as measured, a rule justified by a Round 1
+   failure Round 1 never recorded, and a proposed ticket duplicating deployed
+   work. The pipeline's guards all held — they police what *agents* push, and
+   this file arrived through the orchestrator's own hands. Staging everything
+   is how unreviewed agent output reaches `main`.
+
+Also corrected before merge: the capacity check (#28) compared a whole-run
+request total against a per-10-second budget and would have started
+hard-failing healthy PRs at ~150 tests — a safety check becoming the outage.
+Re-anchored on the only measurement available (45 tests exhausted 60 req/10 s),
+today's 60-test suite reports 6.67x headroom while the original PR #24
+condition still fails correctly.
+
+**Meta-lesson, third instance:** every defect in this batch was found by
+executing the thing against real artifacts, and none by reading it. The
+pipeline's own charter has said "evidence over assertion" since day one; it
+applies to the pipeline's own code most of all.
