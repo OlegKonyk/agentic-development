@@ -161,14 +161,16 @@ jobs:
         continue-on-error: true
         run: |
           mkdir -p context agent-out
+          # Written OUTSIDE context/ on purpose: PR comments are untrusted
+          # input and context/ is the agent's documented workspace.
           gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
-            --paginate --slurp > context/pr-comments.json
+            --paginate --slurp > agent-out/pr-comments.json
           python3 scripts/qa_repeat_guard.py \
             --tier1 unit=${{ steps.unit.outcome }} contract=${{ steps.contract.outcome }} \
             e2e=${{ steps.e2e.outcome }} webhooks=${{ steps.webhooks.outcome }} \
             resilience=${{ steps.resilience.outcome }} \
             --reports reports \
-            --comments context/pr-comments.json \
+            --comments agent-out/pr-comments.json \
             --tree "$(git rev-parse 'HEAD^{tree}')" \
             --head-sha "$HEAD_SHA" \
             --signature-out agent-out/tier1-signature.json \
@@ -221,6 +223,7 @@ jobs:
           --output agent-out/qa-output.json
           --comment agent-out/qa-comment.md
           --repeat agent-out/repeat.json
+          --signature agent-out/tier1-signature.json
 
       - name: Publish verdict (status + comment)
         run: |

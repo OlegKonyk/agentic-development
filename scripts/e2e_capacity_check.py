@@ -7,10 +7,12 @@ that budget is a constant, the suite is not. PR #24 burned two paid QA cycles
 budget. This runs before tier-1 e2e, costs one pytest collection, and compares
 estimated demand with the configured budget.
 
-The model is deliberately crude (documented in docs/sdlc.md): budget
-REQ_PER_TEST gateway requests per collected test. 4 is ~3x the ratio measured at
-the PR #24 breaking point (45 tests exhausted 60), so the check stays quiet
-through normal suite growth and gets loud before the cliff.
+The model is anchored on the one measurement we have: 45 tests exhausted a
+60 req/10 s budget, i.e. ~1.33 requests per test at the observed breaking point.
+REQ_PER_TEST is 1.5 — slightly conservative against that ratio, not a guess — so
+"headroom" means "how far the configured budget sits above the point where this
+suite actually broke". A 3x-inflated figure would have hard-failed healthy jobs
+from ~150 tests, which is how a safety check becomes the outage.
 
 Exit 0 = fine (possibly with a ::warning::), 1 = budget too small.
 Anything it cannot measure is a warning, never a failure: this check must not
@@ -25,7 +27,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-REQ_PER_TEST = 4
+REQ_PER_TEST = 1.5
 WARN_HEADROOM = 1.5
 COUNT_RE = re.compile(r"^(\d+)(?:/\d+)? tests? collected", re.MULTILINE)
 
@@ -49,7 +51,7 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--rate-limit", type=int, required=True, help="gateway RATE_LIMIT per 10s")
     ap.add_argument("--tests", default="qa/tests/e2e")
-    ap.add_argument("--req-per-test", type=int, default=REQ_PER_TEST)
+    ap.add_argument("--req-per-test", type=float, default=REQ_PER_TEST)
     ap.add_argument("--comment", required=True, help="markdown written when the check fails")
     args = ap.parse_args()
 
@@ -58,10 +60,10 @@ def main() -> int:
         print(f"::warning::capacity check skipped: could not count tests in {args.tests}")
         return 0
 
-    required = count * args.req_per_test
+    required = round(count * args.req_per_test)
     headroom = args.rate_limit / required
     line = (
-        f"e2e capacity: {count} tests x {args.req_per_test} req = {required} required "
+        f"e2e capacity: {count} tests x {args.req_per_test} req/test = {required} required "
         f"vs RATE_LIMIT {args.rate_limit} (headroom {headroom:.2f}x)"
     )
     print(line)
@@ -88,4 +90,8 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except Exception as exc:  # noqa: BLE001 - this check never fails a healthy job
+        print(f"::warning::capacity check skipped: {exc}")
+        sys.exit(0)

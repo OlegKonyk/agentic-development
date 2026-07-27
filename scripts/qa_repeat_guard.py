@@ -71,6 +71,10 @@ def previous_block(comments_path: Path) -> dict | None:
     except (OSError, json.JSONDecodeError):
         return None
     comments = data.get("comments", []) if isinstance(data, dict) else data
+    # `gh api --paginate --slurp` yields a list of PAGES; plain --paginate a flat
+    # list. Accept both — the guard silently never fires if this is wrong.
+    if comments and isinstance(comments[0], list):
+        comments = [c for page in comments for c in page]
     for comment in reversed(comments or []):
         body = comment.get("body") or ""
         if MARKER not in body or _author(comment) not in TRUSTED_AUTHORS:
@@ -86,24 +90,37 @@ def previous_block(comments_path: Path) -> dict | None:
 
 
 def _norm(name: str) -> str:
-    """Bare test function name: module path and parametrisation stripped.
+    """Test id reduced to the part both sides spell identically.
 
-    The two sides spell the same test differently — JUnit gives
-    `qa.tests.e2e.test_board::test_x[chromium]`, while the agent's triage writes
-    `qa.tests.e2e.test_board.test_x[chromium]` — so strip the parametrisation
-    first, then take the last segment across every separator either side uses.
+    JUnit writes `qa.tests.e2e.test_board::test_x[chromium]`; the agent's triage
+    writes `qa.tests.e2e.test_board.test_x[chromium]`. Splitting on every
+    separator either side uses leaves `test_x[chromium]` from both. The
+    parametrisation is deliberately KEPT: this suite has same-named parametrised
+    cases (test_active_filter_is_indicated[chromium-doing] vs [chromium-done]),
+    and collapsing them would let one case's `flake` answer for another's `bug`.
     """
-    bare = re.sub(r"\[.*$", "", name)
-    return re.split(r"::|/|\.", bare)[-1].strip().lower()
+    return re.split(r"::|/|\.", name)[-1].strip().lower()
 
 
 def triage_class(block: dict, test_id: str) -> str | None:
-    """The previous run's classification for a failing test, matched by bare name."""
+    """The previous run's classification for a failing test.
+
+    Conflicting classifications under one key resolve to the non-benign one:
+    never launder a `bug` into a `flake`. Carried classifications (from a park
+    comment, which has no verdict of its own) keep the chain alive across runs.
+    """
     target = _norm(test_id)
+    seen: set[str] = set()
     for entry in (block.get("verdict") or {}).get("tier1_triage") or []:
         if _norm(entry.get("test", "")) == target:
-            return (entry.get("classification") or "").lower()
-    return None
+            seen.add((entry.get("classification") or "").lower())
+    for test, cls in (block.get("carried_triage") or {}).items():
+        if _norm(test) == target and cls:
+            seen.add(str(cls).lower())
+    if not seen:
+        return None
+    non_benign = sorted(seen - BENIGN)
+    return non_benign[0] if non_benign else sorted(seen)[0]
 
 
 def decide(current: dict, block: dict | None) -> tuple[bool, str, dict]:
@@ -149,8 +166,15 @@ def main() -> int:
     }
     Path(args.signature_out).write_text(json.dumps(current, indent=2))
 
-    block = previous_block(Path(args.comments))
-    repeat, reason, classes = decide(current, block)
+    # The decision FILE is the contract, not the exit code: a crash here must
+    # degrade to a normal paid run, not silently disarm the next one too.
+    try:
+        block = previous_block(Path(args.comments))
+        repeat, reason, classes = decide(current, block)
+    except Exception as exc:  # noqa: BLE001 - any failure means "run normally"
+        block, repeat, classes = None, False, {}
+        reason = f"guard error, running tier 2 normally: {exc}"
+        print(f"::warning::repeat guard failed: {exc}")
     Path(args.decision_out).write_text(
         json.dumps(
             {

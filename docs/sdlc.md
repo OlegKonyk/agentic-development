@@ -136,13 +136,15 @@ re-add `qa-ready`.
 **Tier 1 — deterministic (the hard gate).**
 Before anything boots, a capacity precheck (`scripts/e2e_capacity_check.py`)
 counts the collected e2e tests and compares the suite's estimated demand
-(4 gateway requests per test — roughly 3x the ratio measured at the PR #24
-breaking point, where 45 tests exhausted a 60 req/10 s budget) against the job's
+(1.5 gateway requests per test, anchored on the one measurement we have — 45
+tests exhausted a 60 req/10 s budget at the PR #24 breaking point, ~1.33 req per
+test) against the job's
 `GATEWAY_RATE_LIMIT` (default 600, the single source for both this check and the
 `wrangler dev --var RATE_LIMIT:…` boot flag). Headroom under 1.5x warns; under
-1.0x the job fails before the stack boots — no spend — and the PR is parked with
-the number to raise. An unparseable collection is a warning, never a failure: the
-check must not become its own flake source. Then boot the stack (`docker compose
+1.0x — i.e. the budget is below the point where a suite this size actually broke
+— the job fails before the stack boots, with no spend, and the PR is parked with
+the number to raise. Anything the check cannot measure, including an exception,
+is a warning: a safety check must never become the outage. Then boot the stack (`docker compose
 up --wait` for api+web, `wrangler dev` for the gateway with the test-profile
 request budget, health-gated with curl retries), seed data (`python -m
 app.seed`), then:

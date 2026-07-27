@@ -29,7 +29,7 @@ on. The pipeline is the product; the apps are the test bed.
 ## Commands
 
 uv workspace (Python >=3.12, single root lock): `uv sync --all-packages`.
-`make test` (unit/integration), `make lint` (ruff + state lint),
+`make test` (unit/integration + pipeline-script tests), `make lint` (ruff + state lint),
 `make stack-up && make gateway-dev` then `make seed`, `make e2e`, `make contract`.
 
 ## Conventions

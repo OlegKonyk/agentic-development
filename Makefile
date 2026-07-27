@@ -10,7 +10,7 @@ lint:
 	python3 scripts/state_lint.py
 
 test:
-	uv run pytest apps/api apps/web -q
+	uv run pytest apps/api apps/web scripts/tests -q
 
 stack-up:
 	docker compose up -d --wait --wait-timeout 120

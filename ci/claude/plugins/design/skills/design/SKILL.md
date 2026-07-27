@@ -29,5 +29,9 @@ Produce, via the structured output schema only:
   verbatim — every AC must be exercisable against the running app.
 
 Hard rules: design only — write no code. Keep the blast radius minimal. If the
+ticket may carry more than one `<!-- sdlc:spec -->` comment (a spec whose
+blocking questions parked the ticket is re-run once the human answers): the
+**most recent one wins**; earlier ones are superseded drafts. Every open
+question that reaches you is non-blocking by construction. If the
 spec has an open question that blocks design, make the safest assumption,
 state it explicitly at the top of design_markdown, and keep going.

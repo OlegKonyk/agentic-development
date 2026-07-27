@@ -37,9 +37,13 @@ House example: ticket #5, "make the board scannable" — a deliberately vague as
    problems (unreadable timestamps, no overdue signal, meaningless card order) and
    explicitly cut the implied scope — filter/search/sort controls, priority fields, any
    visual redesign or theming — into scope OUT rather than silently building it.
-3. If `open_questions` is non-empty and material: answer in an issue comment, re-add
-   `stage:spec`. This is the agent-interviews-PM pattern — the agent surfaces ambiguity,
-   you resolve it, and the answers become part of the durable ticket record
+3. Open questions split two ways. Questions marked **blocking** (the answer would change
+   an AC, the scope boundary, or a contract) park the ticket at `needs-human` before
+   design runs — answer them in a comment and re-add `stage:spec` to re-run the product
+   agent with your answers in context. Non-blocking questions ride along and the ticket
+   advances; design proceeds on a stated assumption. This is the agent-interviews-PM
+   pattern with a real gate behind it — the agent surfaces ambiguity, the pipeline waits
+   only when waiting is warranted
    ([Anthropic best practices](https://code.claude.com/docs/en/best-practices)).
 4. Design posts the final `AC-1..AC-n`. Read this list line by line. Each AC is a single
    observable behavior; QA will mark it `verified`, `failed`, or `not_testable` with

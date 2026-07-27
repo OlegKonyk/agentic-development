@@ -26,7 +26,7 @@ RATE_LIMIT:600`; production-realistic default 60 req/10 s) — full-suite e2e
 volume must not trip 429s that single tests would misread as product bugs. The
 QA job sources that number from `GATEWAY_RATE_LIMIT` in `phase-qa.yml` and
 pre-checks it against the collected e2e test count
-(`scripts/e2e_capacity_check.py`, 4 requests budgeted per test); raise the
+(`scripts/e2e_capacity_check.py`, 1.5 requests budgeted per test); raise the
 workflow env, the `gateway-dev` Makefile target, and this line together.
 
 ## Domain

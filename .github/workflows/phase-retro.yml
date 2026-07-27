@@ -1,7 +1,8 @@
 name: phase-retro
 # Ticket closed out (deployed label) → retro agent reads the ticket's full
 # trajectory and drafts the learning-log entry + improvement proposals, filed
-# as stage:idea issues (max 3 per run). Advisory by design: it blocks nothing,
+# as stage:idea issues (max 2 per run, deduped against open ones). Advisory by
+# design: it blocks nothing,
 # transitions nothing on the source ticket, and its proposals enter the
 # pipeline only when a human applies stage:spec — the same entry gate features
 # get. Everything runs on GITHUB_TOKEN: stage:idea triggers no phase, and

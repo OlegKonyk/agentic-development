@@ -37,7 +37,7 @@ jobs:
         run: docker compose up -d --wait --wait-timeout 60 db redis
 
       - name: Unit & integration tests
-        run: uv run pytest apps/api apps/web -q --junitxml=reports/unit.xml
+        run: uv run pytest apps/api apps/web scripts/tests -q --junitxml=reports/unit.xml
 
       - uses: actions/setup-node@v4
         with:

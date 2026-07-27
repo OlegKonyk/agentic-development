@@ -62,10 +62,11 @@ jobs:
           lines = ["<!-- sdlc:spec -->", "## 📋 Product spec (agent-generated)", "", out["spec_markdown"], "", "### Draft acceptance criteria"]
           lines += [f"- **{ac['id']}**: {ac['description']}" for ac in out["acceptance_criteria"]]
           questions = out["open_questions"]
-          blocking = [q for q in questions if q.get("blocking")]
+          # Fail closed: a malformed question object parks rather than sails through.
+          blocking = [q for q in questions if q.get("blocking", True)]
           if questions:
               lines += ["", "### Open questions"]
-              lines += [f"- {'🚧 **BLOCKING** — ' if q.get('blocking') else ''}{q['question']}" for q in questions]
+              lines += [f"- {'🚧 **BLOCKING** — ' if q.get('blocking', True) else ''}{q['question']}" for q in questions]
           lines += ["", f"_Estimated scope: {out['estimated_scope']}_"]
           if blocking:
               lines += ["", "---", "",

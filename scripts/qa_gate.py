@@ -116,7 +116,7 @@ def render_comment(
                 status = ac.get("status", "?")
                 icon = {"verified": "✅", "failed": "❌"}.get(status, "⚠️")
                 evidence = ac.get("evidence", "").replace("\n", " ")[:200]
-                covering = ac.get("covering_test", "").strip()
+                covering = (ac.get("covering_test") or "").strip()
                 if covering:
                     evidence += f" — literal case covered by `{covering}`"
                 lines.append(f"| {ac.get('id', '?')} | {icon} {status} | {evidence} |")
@@ -157,8 +157,12 @@ def render_comment(
             {
                 "gate": gate,
                 "pr_label": pr_label,
-                # Read by the NEXT run's scripts/qa_repeat_guard.py.
+                # Read by the NEXT run's scripts/qa_repeat_guard.py. When this
+                # run skipped tier 2 there is no verdict to carry triage in, so
+                # pass the classifications forward explicitly — without them the
+                # guard could only ever fire on every other run.
                 "signature": (repeat or {}).get("signature"),
+                "carried_triage": (repeat or {}).get("previous_triage") or None,
                 "verdict": verdict,
             },
             indent=2,
@@ -177,12 +181,19 @@ def main() -> None:
     ap.add_argument("--output", required=True, help="structured_output JSON path")
     ap.add_argument("--comment", required=True, help="where to write the markdown comment")
     ap.add_argument("--repeat", help="scripts/qa_repeat_guard.py decision JSON path")
+    ap.add_argument("--signature", help="fallback tier-1 signature path (guard wrote it first)")
     args = ap.parse_args()
 
     tier1 = dict(pair.split("=", 1) for pair in args.tier1)
     result = load_json(args.result)
     verdict = load_json(args.output)
     repeat = load_json(args.repeat) if args.repeat else None
+    # The signature must reach the next run even when the guard failed after
+    # writing it — otherwise one hiccup disarms the following run too.
+    if args.signature:
+        fallback = load_json(args.signature)
+        if fallback and not (repeat or {}).get("signature"):
+            repeat = {**(repeat or {}), "signature": fallback}
 
     gate, pr_label, reason = decide(tier1, verdict, result, repeat)
     comment = render_comment(tier1, verdict, result, gate, pr_label, reason, repeat)
