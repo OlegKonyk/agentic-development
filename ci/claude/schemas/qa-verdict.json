@@ -18,7 +18,8 @@
         "properties": {
           "id": { "type": "string", "description": "AC id from the ticket, e.g. AC-1" },
           "status": { "type": "string", "enum": ["verified", "failed", "not_testable"] },
-          "evidence": { "type": "string", "description": "What was directly observed: steps taken, values seen, artifact path" }
+          "evidence": { "type": "string", "description": "What was directly observed: steps taken, values seen, artifact path" },
+          "covering_test": { "type": "string", "description": "Required when the evidence substitutes a scenario for the AC's literal one (different filter, counts, or data shape): the id of the green tier-1 test that asserts the literal case. Omit it when you exercised the literal scenario yourself." }
         }
       }
     },

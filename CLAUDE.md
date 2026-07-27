@@ -22,13 +22,14 @@ on. The pipeline is the product; the apps are the test bed.
 - `ci/claude/` — agent assets: plugins (skills per phase), JSON output schemas,
   CI settings, MCP config
 - `scripts/` — deterministic glue: run_agent.sh, transition.sh, qa_gate.py,
-  resolve_pr.sh, loop_guard.sh, state_lint.py
+  qa_repeat_guard.py, e2e_capacity_check.py, resolve_pr.sh, loop_guard.sh,
+  state_lint.py
 - `watcher/` — Agent-SDK ticket watcher (phase 2, local runtime model)
 
 ## Commands
 
 uv workspace (Python >=3.12, single root lock): `uv sync --all-packages`.
-`make test` (unit/integration), `make lint` (ruff + state lint),
+`make test` (unit/integration + pipeline-script tests), `make lint` (ruff + state lint),
 `make stack-up && make gateway-dev` then `make seed`, `make e2e`, `make contract`.
 
 ## Conventions

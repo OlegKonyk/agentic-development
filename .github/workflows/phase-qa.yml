@@ -33,6 +33,9 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       GATEWAY_API_KEY: dev-key
       API_URL: http://localhost:8000
+      # Single source for the gateway's test-profile request budget: the boot
+      # step and the pre-e2e capacity check must never drift apart.
+      GATEWAY_RATE_LIMIT: "600"
     steps:
       - name: Refuse fork PRs
         if: github.event.pull_request.head.repo.full_name != github.repository
@@ -93,10 +96,25 @@ jobs:
           # different revision cache entry).
           npx -y playwright install chromium
 
+      - name: E2E capacity precheck (suite size vs gateway rate limit)
+        # One pytest collection. The gateway's fixed request budget must cover
+        # what the suite will demand; PR #24 discovered that empirically at the
+        # cost of two paid QA cycles. Thin margin warns, insufficient budget
+        # fails here — before the stack boots and before a cent is spent.
+        run: |
+          mkdir -p agent-out
+          if ! python3 scripts/e2e_capacity_check.py \
+              --rate-limit "$GATEWAY_RATE_LIMIT" \
+              --tests qa/tests/e2e \
+              --comment agent-out/capacity.md; then
+            gh pr comment "$PR_NUMBER" --body-file agent-out/capacity.md
+            exit 1
+          fi
+
       - name: Boot the stack
         run: |
           docker compose up -d --wait --wait-timeout 120
-          (cd gateway && nohup npx wrangler dev --port 8787 --var RATE_LIMIT:600 > ../wrangler-dev.log 2>&1 &)
+          (cd gateway && nohup npx wrangler dev --port 8787 --var RATE_LIMIT:"$GATEWAY_RATE_LIMIT" > ../wrangler-dev.log 2>&1 &)
           for url in http://localhost:8000/healthz http://localhost:8001/healthz http://localhost:8787/gw/healthz; do
             curl --retry 60 --retry-delay 1 --retry-all-errors -sf "$url" > /dev/null
           done
@@ -132,6 +150,32 @@ jobs:
         continue-on-error: true
         run: uv run pytest qa/tests/resilience -q --junitxml=reports/resilience.xml
 
+      - name: Repeat-failure guard (deterministic)
+        id: repeat
+        # Same tested tree + same failing tests + previous triage said infra/flake
+        # ⇒ skip tier 2 and let the gate park this for a human. PR #24 paid $3.34
+        # then $2.36 for two agent passes that reached the identical conclusion.
+        # continue-on-error: a bug in the guard must degrade to a normal paid run,
+        # never block QA. Set repo variable QA_REPEAT_GUARD=off to disable.
+        if: vars.QA_REPEAT_GUARD != 'off'
+        continue-on-error: true
+        run: |
+          mkdir -p context agent-out
+          # Written OUTSIDE context/ on purpose: PR comments are untrusted
+          # input and context/ is the agent's documented workspace.
+          gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
+            --paginate --slurp > agent-out/pr-comments.json
+          python3 scripts/qa_repeat_guard.py \
+            --tier1 unit=${{ steps.unit.outcome }} contract=${{ steps.contract.outcome }} \
+            e2e=${{ steps.e2e.outcome }} webhooks=${{ steps.webhooks.outcome }} \
+            resilience=${{ steps.resilience.outcome }} \
+            --reports reports \
+            --comments agent-out/pr-comments.json \
+            --tree "$(git rev-parse 'HEAD^{tree}')" \
+            --head-sha "$HEAD_SHA" \
+            --signature-out agent-out/tier1-signature.json \
+            --decision-out agent-out/repeat.json
+
       - name: Gather agent context
         run: |
           gh pr view "$PR_NUMBER" --json number,title,body,files > context/pr.json
@@ -152,6 +196,7 @@ jobs:
           cp -r reports context/reports
 
       - name: Reset and seed for the agent session
+        if: steps.repeat.outputs.repeat != 'true'
         # Re-seed via the app's own module (inside the api container) so the
         # agent starts from the exact canonical dataset the stack boots with —
         # alice + bob, fixed ids/timestamps. Runs DB-direct, no auth needed.
@@ -159,6 +204,7 @@ jobs:
 
       - name: Tier 2 — QA agent
         id: agent
+        if: steps.repeat.outputs.repeat != 'true'
         continue-on-error: true
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -176,6 +222,8 @@ jobs:
           --result agent-out/qa-result.json
           --output agent-out/qa-output.json
           --comment agent-out/qa-comment.md
+          --repeat agent-out/repeat.json
+          --signature agent-out/tier1-signature.json
 
       - name: Publish verdict (status + comment)
         run: |

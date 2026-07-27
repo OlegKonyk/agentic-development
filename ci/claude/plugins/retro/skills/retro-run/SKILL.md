@@ -18,6 +18,8 @@ Context directory `$0` contains:
 - `pr.json`, `pr-comments.json`, `pr-timeline.json` — the merged PR and its
   full comment/label history (QA verdict comments carry cost, turns, tier-1
   outcomes, findings, and triage), when a merged PR exists
+- `open-ideas.json` — every currently-open `stage:idea` issue (number, title,
+  body): the proposal backlog, including everything earlier retros filed
 
 ## Procedure
 
@@ -33,11 +35,17 @@ Context directory `$0` contains:
    docs/learning-log.md for tone): dated heading, numbered lessons, every
    claim tied to a number, comment, or run. Only durable lessons — an
    uneventful ticket earns two lines, not a retrospective essay.
-4. Propose at most three improvements, each with concrete evidence. A
+4. Propose at most **two** improvements, each with concrete evidence. A
    proposal must name the problem, the desired outcome, and the rough shape
-   of the change — not an implementation. Zero proposals is a fine outcome.
-   You cannot see the repo's other open issues, so make each proposal
-   specific enough that the human at the entry gate can dedupe it.
+   of the change — not an implementation. Zero proposals is a fine outcome;
+   one sharp proposal beats two weak ones.
+   **Dedupe first.** Read `open-ideas.json` before proposing anything. If an
+   open idea already covers the problem you found — same root cause, even if
+   worded differently — do NOT file it again. Say so in `summary` instead
+   ("this ticket is a second data point for #26: <your new evidence>"), which
+   is posted on the ticket. File a proposal only when nothing open covers it,
+   or when your evidence changes what the fix should be — then name the issue
+   you are superseding in the body.
 5. You cannot see production or run the app; do not speculate beyond the
    artifacts. Claims without evidence do not go in the entry.
 

@@ -54,23 +54,47 @@ jobs:
           scripts/run_agent.sh product "/product:spec context/issue.json"
 
       - name: Render spec comment
+        id: render
         run: |
           python3 - <<'EOF'
-          import json, pathlib
+          import json, os, pathlib
           out = json.loads(pathlib.Path("agent-out/product-output.json").read_text())
           lines = ["<!-- sdlc:spec -->", "## 📋 Product spec (agent-generated)", "", out["spec_markdown"], "", "### Draft acceptance criteria"]
           lines += [f"- **{ac['id']}**: {ac['description']}" for ac in out["acceptance_criteria"]]
-          if out["open_questions"]:
-              lines += ["", "### Open questions"] + [f"- {q}" for q in out["open_questions"]]
+          questions = out["open_questions"]
+          # Fail closed: a malformed question object parks rather than sails through.
+          blocking = [q for q in questions if q.get("blocking", True)]
+          if questions:
+              lines += ["", "### Open questions"]
+              lines += [f"- {'🚧 **BLOCKING** — ' if q.get('blocking', True) else ''}{q['question']}" for q in questions]
           lines += ["", f"_Estimated scope: {out['estimated_scope']}_"]
+          if blocking:
+              lines += ["", "---", "",
+                        f"⛔ **Parked: {len(blocking)} blocking open question(s).** The design phase "
+                        "would have to guess these answers, so the pipeline stops here instead of "
+                        "racing you. Answer them in a comment (and edit the ticket if the scope "
+                        "moves), then re-add `stage:spec` to re-run the product phase with your "
+                        "answers in context."]
           pathlib.Path("agent-out/spec-comment.md").write_text("\n".join(lines))
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"blocking={'true' if blocking else 'false'}\n")
           EOF
           { echo ""; cat agent-out/phase-cost.md; } >> agent-out/spec-comment.md
 
       - name: Transition → stage:design
+        if: steps.render.outputs.blocking != 'true'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
-        run: scripts/transition.sh issue "$ISSUE" stage:spec stage:design agent-out/spec-comment.md
+        run: |
+          # Clear a park left by a previous blocking-question run before advancing.
+          scripts/transition.sh issue "$ISSUE" needs-human -
+          scripts/transition.sh issue "$ISSUE" stage:spec stage:design agent-out/spec-comment.md
+
+      - name: Park → needs-human (blocking open questions)
+        if: steps.render.outputs.blocking == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: scripts/transition.sh issue "$ISSUE" stage:spec needs-human agent-out/spec-comment.md
 
       - name: Park on failure
         if: failure()

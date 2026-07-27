@@ -1,7 +1,8 @@
 name: phase-retro
 # Ticket closed out (deployed label) → retro agent reads the ticket's full
 # trajectory and drafts the learning-log entry + improvement proposals, filed
-# as stage:idea issues (max 3 per run). Advisory by design: it blocks nothing,
+# as stage:idea issues (max 2 per run, deduped against open ones). Advisory by
+# design: it blocks nothing,
 # transitions nothing on the source ticket, and its proposals enter the
 # pipeline only when a human applies stage:spec — the same entry gate features
 # get. Everything runs on GITHUB_TOKEN: stage:idea triggers no phase, and
@@ -57,6 +58,11 @@ jobs:
           else
             echo '{"warning": "no merged PR found for this issue"}' > context/pr.json
           fi
+          # The proposal backlog: retro must dedupe against it instead of
+          # re-filing an idea an earlier run already opened (Round 1 filed the
+          # same idea three times).
+          gh issue list --label stage:idea --state open --limit 100 \
+            --json number,title,body > context/open-ideas.json
 
       - name: Retro agent
         env:
@@ -94,7 +100,7 @@ jobs:
               "",
           ]
           created = []
-          for p in out.get("proposals", [])[:3]:
+          for p in out.get("proposals", [])[:2]:
               body = (
                   f"{p['body']}\n\n### Evidence\n{p['evidence']}\n\n"
                   f"_Filed by the retro phase from ticket #{issue} ({run_url}). "

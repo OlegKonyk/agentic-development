@@ -14,7 +14,7 @@
     },
     "proposals": {
       "type": "array",
-      "maxItems": 3,
+      "maxItems": 2,
       "items": {
         "type": "object",
         "additionalProperties": false,
