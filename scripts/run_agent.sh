@@ -50,7 +50,22 @@ case "$PHASE" in
   dev)
     MODEL="${DEV_MODEL:-sonnet}"; MAX_TURNS=120; MAX_BUDGET="${DEV_BUDGET:-12}"
     SCHEMA="dev-report.json"
-    TOOLS="Read,Glob,Grep,Edit,Write,Bash(uv run *),Bash(uv sync *),Bash(git add *),Bash(git commit *),Bash(git status),Bash(git diff *),Bash(git log *),Bash(mkdir *),Bash(curl *),Bash(docker compose exec *)"
+    # Broad Bash, same trust model as QA: the deny-list in ci-settings.json (no
+    # push/merge/deploy/rm -rf/sudo, no edits to pipeline files), a
+    # credential-less checkout, and the pre-push privileged-path guard are the
+    # real boundaries — not an arg-scoped allowlist. The old arg-scoped list
+    # auto-denied every `cd x && ...`, `VAR=1 uv run ...`, backgrounded, or
+    # piped command an agent naturally writes: ticket #36 burned 121 turns and
+    # $6.25 on 13 such denials trying to boot the app it was asked to build
+    # against — the identical failure PR #10 cycles 2-3 diagnosed for QA, left
+    # unfixed here because the fix was applied where the bug was found rather
+    # than everywhere its shape existed.
+    TOOLS="Read,Glob,Grep,Edit,Write,Bash"
+    # Dev commits (the workflow pushes); it must not mutate the ticket or the
+    # remote. Everything else it needs to verify its own work is allowed.
+    # No browser here on purpose: the dev job boots db+redis only, so browser
+    # verification belongs to QA, which boots the full stack.
+    DISALLOWED="Bash(gh pr comment *),Bash(gh issue comment *),Bash(gh pr edit *),Bash(gh issue edit *),Bash(gh pr merge *)"
     ;;
   qa)
     MODEL="${QA_MODEL:-sonnet}"; MAX_TURNS="${QA_MAX_TURNS:-120}"; MAX_BUDGET="${QA_BUDGET:-8}"
