@@ -61,6 +61,13 @@ Environment notes:
    the behavior — record what you did and saw as evidence. If the app contradicts
    the AC, it is `failed` and needs a finding. If you cannot exercise it, it is
    `not_testable` with the reason.
+
+   Exercise the AC's **literal** scenario — its own filter, counts, and values.
+   If you checked something easier or adjacent instead, open `evidence` with
+   "substituted:" and what you actually did, and set `covering_test` to the
+   green tier-1 test id that asserts the literal case (confirm it in
+   `reports/`). No literal check and no covering test means `not_testable`, not
+   `verified`. "Analogous to…" is never proof on its own.
 4. **Exploratory charter** (bounded — roughly a third of your effort): probe
    boundaries the scripted tests miss. Ideas: empty/long/unicode titles,
    double-submits, deleting a task shown in another tab, direct API calls with

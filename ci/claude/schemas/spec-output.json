@@ -21,7 +21,19 @@
         }
       }
     },
-    "open_questions": { "type": "array", "items": { "type": "string" } },
+    "open_questions": {
+      "type": "array",
+      "description": "Real ambiguities a human should settle. Empty if none.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["question", "blocking"],
+        "properties": {
+          "question": { "type": "string" },
+          "blocking": { "type": "boolean", "description": "true only if the answer would change an acceptance criterion, the scope boundary, or an API/UI contract — i.e. the design and dev phases would be guessing. A blocking question parks the ticket for a human; nice-to-know questions are false." }
+        }
+      }
+    },
     "estimated_scope": { "type": "string", "enum": ["small", "medium", "large"] }
   }
 }

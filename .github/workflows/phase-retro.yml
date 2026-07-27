@@ -57,6 +57,11 @@ jobs:
           else
             echo '{"warning": "no merged PR found for this issue"}' > context/pr.json
           fi
+          # The proposal backlog: retro must dedupe against it instead of
+          # re-filing an idea an earlier run already opened (Round 1 filed the
+          # same idea three times).
+          gh issue list --label stage:idea --state open --limit 100 \
+            --json number,title,body > context/open-ideas.json
 
       - name: Retro agent
         env:
@@ -94,7 +99,7 @@ jobs:
               "",
           ]
           created = []
-          for p in out.get("proposals", [])[:3]:
+          for p in out.get("proposals", [])[:2]:
               body = (
                   f"{p['body']}\n\n### Evidence\n{p['evidence']}\n\n"
                   f"_Filed by the retro phase from ticket #{issue} ({run_url}). "

@@ -23,7 +23,11 @@ api/worker→vendor uses `toxiproxy:8666`. Dev profile connects directly.
 CI Postgres runs on tmpfs with `fsync=off synchronous_commit=off`.
 Test harnesses raise the gateway request budget (`wrangler dev --var
 RATE_LIMIT:600`; production-realistic default 60 req/10 s) — full-suite e2e
-volume must not trip 429s that single tests would misread as product bugs.
+volume must not trip 429s that single tests would misread as product bugs. The
+QA job sources that number from `GATEWAY_RATE_LIMIT` in `phase-qa.yml` and
+pre-checks it against the collected e2e test count
+(`scripts/e2e_capacity_check.py`, 4 requests budgeted per test); raise the
+workflow env, the `gateway-dev` Makefile target, and this line together.
 
 ## Domain
 

@@ -21,11 +21,18 @@ Produce, via the structured output schema only:
 - `acceptance_criteria` — draft `AC-n` list. Each criterion is a single
   observable behavior testable through the UI or API ("Given/When/Then" style
   welcome). No implementation details, no vague words ("fast", "nice").
-- `open_questions` — real ambiguities a human should settle. Empty if none;
-  do not manufacture questions.
+- `open_questions` — real ambiguities a human should settle, each with a
+  `blocking` flag. Empty if none; do not manufacture questions.
+  Mark `blocking: true` only when the answer would change an acceptance
+  criterion, the scope boundary, or an API/UI contract — without it the design
+  and dev phases would build a guess. Everything else (polish, future
+  extensions, "would you also like…") is `false` and rides along with the spec.
+  Blocking is expensive: it stops the pipeline and waits for a human. Use it
+  only when you would genuinely refuse to hand this spec to a designer as it
+  stands. Most tickets have zero blocking questions.
 - `estimated_scope` — small/medium/large relative to this codebase.
 
 Hard rules: do not design the implementation (that's the next phase). Do not
 invent requirements beyond the ticket + obvious product coherence. If the ticket
 is fundamentally unclear or contradicts the product, say so in open_questions
-and keep the spec minimal.
+with `blocking: true` and keep the spec minimal.

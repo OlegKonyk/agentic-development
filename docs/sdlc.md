@@ -90,18 +90,28 @@ trigger (labeled event, name-guarded)
 
 | Phase | Workflow | Trigger | Agent skill | Output schema | Success transition |
 |---|---|---|---|---|---|
-| Product | `phase-product.yml` | issue labeled `stage:spec` | `/product:spec` | `spec-output.json` | → `stage:design` |
+| Product | `phase-product.yml` | issue labeled `stage:spec` | `/product:spec` | `spec-output.json` | → `stage:design`, or → `needs-human` when the spec carries a blocking open question |
 | Design | `phase-design.yml` | issue labeled `stage:design` | `/design:design` | `design-output.json` | → `stage:dev` |
 | Dev | `phase-dev.yml` | issue labeled `stage:dev` | `/dev:implement` | `dev-report.json` | PR opened with `Fixes #N`, PR labeled `qa-ready`, issue → `stage:qa` |
 | Dev rework | `phase-dev.yml` | PR labeled `qa-failed` | `/dev:rework` | `dev-report.json` | push fixes, PR relabeled `qa-ready` |
 | QA | `phase-qa.yml` | PR labeled `qa-ready` | `/qa:qa-run` | `qa-verdict.json` | status `qa/agent-verdict` on head SHA; PR → `qa-passed` or `qa-failed` |
 | Deploy | `deploy.yml` | push to `main` | none (deterministic) | — | gateway deployed (or simulated), issue → `stage:done` + `deployed` |
-| Retro | `phase-retro.yml` | issue labeled `deployed` | `/retro:retro-run` | `retro-output.json` | advisory: retro comment on the ticket + ≤3 `stage:idea` proposal issues; no transition |
+| Retro | `phase-retro.yml` | issue labeled `deployed` | `/retro:retro-run` | `retro-output.json` | advisory: retro comment on the ticket + ≤2 `stage:idea` proposal issues, deduped against open ones; no transition |
 
 Phase outputs are durable: the product spec and the design (including numbered
 acceptance criteria `AC-1..AC-n`) are posted as issue comments and appended to
 the issue body between HTML marker comments, so later phases read them
 deterministically with `gh issue view --json body`.
+
+**Blocking open questions.** Each `open_questions` entry from the product phase
+carries a `blocking` flag — true only when the answer would change an acceptance
+criterion, the scope boundary, or an API/UI contract. With none, the phase
+transitions to `stage:design` as before. With one or more, `phase-product.yml`
+posts the spec and parks the issue at `needs-human` instead: the design phase
+never runs against a spec whose material ambiguities are still open, so a human
+answer no longer races the next phase. Answering and re-adding `stage:spec`
+re-runs the product agent with the answers in context; that success path also
+drops the `needs-human` label.
 
 The dev and rework phases boot `db` + `redis` (`docker compose up -d --wait db
 redis`) before the agent runs, with `DATABASE_URL`/`REDIS_URL`/`APP_ENV=test` in
@@ -124,9 +134,18 @@ PR `needs-human` with a comment telling the human to update the branch and
 re-add `qa-ready`.
 
 **Tier 1 — deterministic (the hard gate).**
-Boot the stack (`docker compose up --wait` for api+web, `wrangler dev` for the
-gateway with the test-profile request budget `--var RATE_LIMIT:600`,
-health-gated with curl retries), seed data (`python -m app.seed`), then:
+Before anything boots, a capacity precheck (`scripts/e2e_capacity_check.py`)
+counts the collected e2e tests and compares the suite's estimated demand
+(4 gateway requests per test — roughly 3x the ratio measured at the PR #24
+breaking point, where 45 tests exhausted a 60 req/10 s budget) against the job's
+`GATEWAY_RATE_LIMIT` (default 600, the single source for both this check and the
+`wrangler dev --var RATE_LIMIT:…` boot flag). Headroom under 1.5x warns; under
+1.0x the job fails before the stack boots — no spend — and the PR is parked with
+the number to raise. An unparseable collection is a warning, never a failure: the
+check must not become its own flake source. Then boot the stack (`docker compose
+up --wait` for api+web, `wrangler dev` for the gateway with the test-profile
+request budget, health-gated with curl retries), seed data (`python -m
+app.seed`), then:
 
 - API unit + integration tests (`pytest` with httpx `ASGITransport`)
 - Contract tests (Schemathesis v4 against the OpenAPI schema — fixed `--seed`,
@@ -137,6 +156,25 @@ health-gated with curl retries), seed data (`python -m app.seed`), then:
 
 Test steps use `continue-on-error` and record outcomes; artifacts (JUnit XML,
 traces) always upload.
+
+**Repeat-failure guard (between the tiers).** Before the agent runs,
+`scripts/qa_repeat_guard.py` builds a signature of this run — the tested tree
+(`git rev-parse HEAD^{tree}`), the per-suite outcomes, and the exact set of
+failing tests parsed from the JUnit XML — and compares it with the signature
+embedded in the most recent `<!-- sdlc:qa-verdict -->` comment on the PR (only
+comments authored by the pipeline are read; PR comments are untrusted input).
+When tree, outcomes, and failing set all match and the previous run's
+`tier1_triage` classified every one of those failures `infra` or `flake`, tier 2
+is skipped and the gate parks the PR at `needs-human`, quoting the signature and
+the earlier classification. It is never a pass: a repeat flake earns a red gate
+plus a human, not a green one. Keying on the tree rather than the head SHA makes
+"nothing that could change the outcome changed" the actual test — it covers a
+re-drive on the same SHA and a merge from an unchanged `main`, and an empty
+commit cannot unlock it, while any real change (including merging a `main` that
+fixed the environment) re-enables the full run. Repo variable
+`QA_REPEAT_GUARD=off` disables it; a crash in the guard degrades to a normal paid
+run. Evidence: PR #24 paid $3.34 and then $2.36 for two agent passes that reached
+the identical conclusion about the identical rate-limit flake.
 
 **Tier 2 — agentic.**
 One `claude -p` run (`scripts/run_agent.sh qa`) that receives: the ticket's
@@ -150,12 +188,17 @@ surface there), and triage tier-1 failures as bug / infra / flake. It returns a
 
 ```json
 { "verdict": "pass|fail|blocked",
-  "acceptance_criteria": [{ "id": "AC-1", "status": "verified|failed|not_testable", "evidence": "..." }],
+  "acceptance_criteria": [{ "id": "AC-1", "status": "verified|failed|not_testable", "evidence": "...", "covering_test": "tier-1 test id, required when the evidence substitutes a scenario" }],
   "findings": [{ "severity": "critical|high|medium|low", "title": "...",
                  "repro_steps": "...", "artifact_paths": ["..."] }],
   "tier1_triage": [{ "test": "...", "classification": "bug|infra|flake", "reason": "..." }],
   "summary": "..." }
 ```
+
+Evidence discipline: when the agent verifies an AC with a scenario that is not
+the AC's literal one, the evidence must say so and `covering_test` must name the
+green tier-1 test asserting the literal case — otherwise the AC is
+`not_testable`, not `verified`.
 
 **Gate rule** (deterministic, in YAML): tier-1 all green AND
 `structured_output.verdict == "pass"` → commit status `qa/agent-verdict` =
@@ -163,7 +206,9 @@ success on the PR head SHA and PR → `qa-passed`. Any tier-1 failure or agent
 `fail` → status failure, PR → `qa-failed` with the findings comment. Agent
 `blocked`, missing structured output, `is_error`, or error subtypes
 (`error_max_turns`, `error_during_execution`) → `needs-human`. A `fail` finding
-without `repro_steps` is downgraded to `blocked` by the parsing step.
+without `repro_steps` is downgraded to `blocked` by the parsing step. The
+repeat-failure guard is evaluated first: `repeat = true` → status failure, PR →
+`needs-human`, regardless of what the skipped agent would have said.
 
 Branch protection (ruleset on `main`) requires contexts `ci` and
 `qa/agent-verdict`, so the merge button is the human gate over machine-verified
@@ -218,6 +263,9 @@ claude -p "<skill invocation + context>" \
   agent (fix the sandbox, not the ceiling).
 - Loop guard threshold on timeline label events; max 3 QA↔rework cycles before
   `needs-human`.
+- Repeat-failure guard: an identical tier-1 failure signature on an identical
+  tree, previously triaged `infra`/`flake`, skips tier 2 and escalates to a
+  human instead of re-buying the same conclusion.
 - Models per phase (aliases, overridable via workflow env): product/design
   `opus`, dev/qa `sonnet`, summaries `haiku`.
 
@@ -252,9 +300,12 @@ claude -p "<skill invocation + context>" \
 When a ticket earns `deployed`, `phase-retro.yml` runs a read-only agent over
 the ticket's full trajectory (issue + merged-PR comments and label timelines —
 these carry every phase's cost, turns, denials, verdicts, and parks). It
-returns a schema-validated draft learning-log entry plus at most three
-improvement proposals; a deterministic step posts the draft as a
-`<!-- sdlc:retro -->` comment and files the proposals as `stage:idea` issues.
+returns a schema-validated draft learning-log entry plus at most two improvement
+proposals, deduped by the agent against the repo's open `stage:idea` issues
+(gathered into its context dir as `open-ideas.json`); a deterministic step posts
+the draft as a `<!-- sdlc:retro -->` comment and files the proposals as
+`stage:idea` issues. A duplicate is reported in the retro summary as new
+evidence for the existing idea rather than filed again.
 
 Governance, by construction rather than convention:
 
@@ -266,7 +317,7 @@ Governance, by construction rather than convention:
   enter the pipeline only when a human applies `stage:spec` — the identical
   entry gate features pass through. Landing the drafted learning-log entry on
   `main` is likewise a human/orchestrator act.
-- **Bounded.** ≤3 proposals per run, 30-turn/$3 caps, and a loop guard whose
+- **Bounded.** ≤2 proposals per run, 30-turn/$3 caps, and a loop guard whose
   counted pattern includes `deployed` itself — repeated human re-adds of the
   label cannot re-run retro past the guard's ceiling.
 
