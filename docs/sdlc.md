@@ -274,8 +274,15 @@ claude -p "<skill invocation + context>" \
 ### Trust boundaries
 
 - Ticket bodies, PR comments, and pages the QA agent browses are untrusted
-  input. Agents get tool allowlists, never deploy secrets; the QA job has no
-  Cloudflare token; `browser_run_code_unsafe` is disallowed.
+  input. Agents never get deploy secrets; the QA job has no Cloudflare token;
+  `browser_run_code_unsafe` is disallowed. The dev and QA phases get broad
+  `Bash` rather than arg-scoped allowlists: the deny-list, the credential-less
+  checkout, and the pre-push privileged-path guard are the enforceable
+  boundaries, while an arg-scoped list only auto-denies the compound,
+  env-prefixed and piped commands agents naturally write — twice now that has
+  burned a phase's whole turn budget fighting the sandbox instead of working
+  (PR #10 cycles 2-3 in QA; ticket #36 in dev, 121 turns and $6.25 on 13
+  denials). Fix the sandbox, never the ceiling.
 - Fork PRs (`isCrossRepository`) are refused: labeled `needs-human`, never run
   with secrets.
 - Agents write only to `feature/*` branches; `main` is protected by the ruleset;
