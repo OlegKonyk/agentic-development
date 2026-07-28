@@ -123,7 +123,7 @@ effort a "before" leg: Round 1 measured 51/31/31 min for #4/#7/#8.
   ledger froze *after* this was noticed, not before. Measured for the record:
   0.91 h, $4.56 counted, 0 rework, 1 park.
 
-Totals (forecast, eight live tickets): **$46–91** — floor $51 if R2-8 is killed at the gate, $55 if not —
+Totals (forecast, eight live tickets): **$46–91** — floor $46 if R2-8 is killed at the gate, $50 if not —
 ≤12 rework cycles, ≤6 unplanned parks, ~12 h wall clock, ≥7 of 9 deployed in-window.
 
 ## Seat assignment
