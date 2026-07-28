@@ -5,8 +5,8 @@ from __future__ import annotations
 import re
 
 import pytest
-from playwright.sync_api import Page, expect
-from qa_helpers import ApiClient
+from playwright.sync_api import Browser, Page, expect
+from qa_helpers import ApiClient, alice_credentials
 
 
 def _form_controls(page: Page, form_selector: str) -> list[str]:
@@ -177,6 +177,43 @@ def test_pages_expose_banner_and_main_landmarks(
         pg.get_by_role("main"),
         f"{path}: expected exactly one main landmark (<main> in base.html)",
     ).to_have_count(1)
+
+
+def test_post_expiry_login_page_keeps_one_banner_one_main_and_focus_order(
+    browser: Browser, base_url: str
+) -> None:
+    email, password = alice_credentials()
+    context = browser.new_context(base_url=base_url, timezone_id="UTC")
+    page = context.new_page()
+    page.goto("/login")
+    page.get_by_test_id("email-input").fill(email)
+    page.get_by_test_id("password-input").fill(password)
+    page.get_by_test_id("submit-login").click()
+    expect(page.get_by_test_id("user-email")).to_contain_text(email)
+
+    expired_state = context.storage_state()  # captured BEFORE logout
+    page.get_by_test_id("logout-btn").click()
+    context.close()
+
+    expired_context = browser.new_context(
+        base_url=base_url, storage_state=expired_state, timezone_id="UTC"
+    )
+    try:
+        expired_page = expired_context.new_page()
+        expired_page.goto("/")
+        expect(expired_page.get_by_test_id("session-expired")).to_be_visible()
+        expect(expired_page.get_by_test_id("login-error")).to_have_count(0)
+
+        expect(expired_page.get_by_role("banner")).to_have_count(1)
+        expect(expired_page.get_by_role("main")).to_have_count(1)
+
+        expected = _form_controls(expired_page, "form.stacked")
+        assert expected == ["email-input", "password-input", "submit-login"]
+        seq = _tab_sequence(expired_page)
+        observed = [t for t in seq if t in expected]
+        assert observed == expected
+    finally:
+        expired_context.close()
 
 
 def test_filter_links_have_accessible_names(alice_page: Page) -> None:

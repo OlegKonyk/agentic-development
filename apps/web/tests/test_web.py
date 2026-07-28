@@ -17,11 +17,13 @@ from fastapi.testclient import TestClient
 from web.main import (
     BOARD_PAGE_SIZE,
     DEGRADED_REMINDERS_MESSAGE,
+    DRAFT_MAX_BYTES,
     PREV_STATUS,
     UTC_ZONE,
     board_url,
     create_app,
     decorate_tasks,
+    draft_fits,
     empty_state,
     filter_options,
     format_due_at,
@@ -31,6 +33,7 @@ from web.main import (
     reminder_health_url,
     resolve_zone,
     safe_next,
+    same_user,
     title_rejected,
     to_rfc3339_z,
 )
@@ -193,6 +196,26 @@ def test_title_rejected_helper() -> None:
     assert title_rejected({}) is False
     assert title_rejected("boom") is False
     assert title_rejected([{}]) is False
+
+
+def test_draft_fits_accepts_typical_and_rejects_oversized() -> None:
+    assert draft_fits({"title": "Ship it", "description": "small", "due_at": "2026-08-25T17:00"})
+    assert not draft_fits({"title": "x" * (DRAFT_MAX_BYTES + 1), "description": "", "due_at": ""})
+    # non-ASCII inflates to `\uXXXX` (6 bytes/char) once JSON-encoded
+    boundary_ok = "é" * (DRAFT_MAX_BYTES // 6 - 10)
+    assert draft_fits({"title": boundary_ok, "description": "", "due_at": ""})
+    boundary_over = "é" * (DRAFT_MAX_BYTES // 6 + 10)
+    assert not draft_fits({"title": boundary_over, "description": "", "due_at": ""})
+
+
+def test_same_user_casefolds_and_rejects_missing_owner_or_email() -> None:
+    assert same_user("alice@example.com", "alice@example.com") is True
+    assert same_user("Alice@Example.com", "alice@example.com ") is True
+    assert same_user("alice@example.com", "bob@example.com") is False
+    assert same_user(None, "alice@example.com") is False
+    assert same_user("alice@example.com", None) is False
+    assert same_user(None, None) is False
+    assert same_user("", "") is False
 
 
 def test_format_due_at_renders_zone_named_label() -> None:
@@ -486,6 +509,31 @@ def test_api_401_mid_session_clears_cookie_and_redirects(client: TestClient) -> 
     assert resp.headers["location"] == "/login"
     # session was cleared: the next hit is the plain unauthed redirect
     resp = client.get("/", follow_redirects=False)
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/login?next=/"
+
+
+@respx.mock
+def test_board_401_redirects_to_bare_login_and_still_flags_expiry(client: TestClient) -> None:
+    login(client)
+    respx.get(f"{API}/api/auth/me").mock(return_value=httpx.Response(401))
+
+    resp = client.get("/", follow_redirects=False)
+
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/login"
+    body = client.get("/login").text
+    assert 'data-testid="session-expired"' in body
+
+
+@respx.mock
+def test_expired_session_is_unauthenticated_while_draft_is_stashed(client: TestClient) -> None:
+    csrf = login(client)
+    respx.post(f"{API}/api/tasks").mock(return_value=httpx.Response(401))
+    client.post("/new", data={"title": "New one", "csrf_token": csrf}, follow_redirects=False)
+
+    resp = client.get("/", follow_redirects=False)
+
     assert resp.status_code == 303
     assert resp.headers["location"] == "/login?next=/"
 
@@ -1723,16 +1771,292 @@ def test_new_task_api_down_renders_error_banner(client: TestClient) -> None:
 
 
 @respx.mock
-def test_new_task_api_401_clears_session(client: TestClient) -> None:
+def test_new_task_api_401_redirects_to_login_next_new_and_stashes_draft(
+    client: TestClient,
+) -> None:
     csrf = login(client)
     respx.post(f"{API}/api/tasks").mock(return_value=httpx.Response(401))
 
     resp = client.post(
-        "/new", data={"title": "New one", "csrf_token": csrf}, follow_redirects=False
+        "/new",
+        data={
+            "title": "New one",
+            "description": "some notes",
+            "due_at": "2026-03-01T12:30",
+            "csrf_token": csrf,
+        },
+        follow_redirects=False,
     )
 
     assert resp.status_code == 303
-    assert resp.headers["location"] == "/login"
+    assert resp.headers["location"] == "/login?next=/new"
+
+    body = client.get("/login").text
+    assert 'data-testid="session-expired"' in body
+
+    login(client)
+    new_body = client.get("/new").text
+    assert 'value="New one"' in new_body
+    assert "some notes" in new_body
+    assert 'value="2026-03-01T12:30"' in new_body
+
+
+# --- session expiry: login notice & draft restore ---------------------------
+
+
+def test_session_expired_notice_absent_on_direct_login_page_and_unauthed_redirect(
+    client: TestClient,
+) -> None:
+    body = client.get("/login").text
+    assert 'data-testid="session-expired"' not in body
+
+    resp = client.get("/new", follow_redirects=False)
+    assert resp.status_code == 303
+    login_body = client.get(resp.headers["location"]).text
+    assert 'data-testid="session-expired"' not in login_body
+
+
+@respx.mock
+def test_session_expired_notice_absent_after_logout(client: TestClient) -> None:
+    csrf = login(client)
+
+    respx.post(f"{API}/api/auth/logout").mock(return_value=httpx.Response(204))
+    resp = client.post("/logout", data={"csrf_token": csrf}, follow_redirects=False)
+
+    assert resp.status_code == 303
+    body = client.get(resp.headers["location"]).text
+    assert 'data-testid="session-expired"' not in body
+
+
+@respx.mock
+def test_relogin_after_expiry_redirects_to_new_and_prefills_draft(client: TestClient) -> None:
+    csrf = login(client)
+    client.cookies.set("tz", "Europe/Berlin")
+    respx.post(f"{API}/api/tasks").mock(return_value=httpx.Response(401))
+    client.post(
+        "/new",
+        data={
+            "title": "Non-ASCII tïtle",
+            "description": "some notes\nmore",
+            "due_at": "2026-08-25T17:00",
+            "csrf_token": csrf,
+        },
+        follow_redirects=False,
+    )
+
+    resp = client.post(
+        "/login",
+        data={
+            "email": "alice@example.com",
+            "password": "pw",
+            "csrf_token": extract_csrf(client.get("/login").text),
+            "next": "/new",
+        },
+        follow_redirects=False,
+    )
+
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/new"
+    body = client.get(resp.headers["location"]).text
+    assert 'value="Non-ASCII tïtle"' in body
+    assert "some notes\nmore" in body
+    assert 'value="2026-08-25T17:00"' in body
+    assert "Times are in Europe/Berlin." in body
+
+
+@respx.mock
+def test_restored_draft_submit_sends_original_values_and_clears_stash(client: TestClient) -> None:
+    csrf = login(client)
+    respx.post(f"{API}/api/tasks").mock(return_value=httpx.Response(401))
+    client.post(
+        "/new",
+        data={
+            "title": "Restore me",
+            "description": "details",
+            "due_at": "2026-03-01T12:30",
+            "csrf_token": csrf,
+        },
+        follow_redirects=False,
+    )
+    login(client)
+    new_csrf = extract_csrf(client.get("/new").text)
+
+    route = respx.post(f"{API}/api/tasks").mock(
+        return_value=httpx.Response(201, json={**SEEDED[0], "id": 9, "title": "Restore me"})
+    )
+    resp = client.post(
+        "/new",
+        data={
+            "title": "Restore me",
+            "description": "details",
+            "due_at": "2026-03-01T12:30",
+            "csrf_token": new_csrf,
+        },
+        follow_redirects=False,
+    )
+
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/"
+    assert json.loads(route.calls.last.request.content) == {
+        "title": "Restore me",
+        "description": "details",
+        "due_at": "2026-03-01T12:30:00Z",
+    }
+    empty_body = client.get("/new").text
+    assert 'value="Restore me"' not in empty_body
+    assert "details" not in empty_body
+
+
+@respx.mock
+def test_wrong_password_keeps_draft_and_shows_both_banners(client: TestClient) -> None:
+    csrf = login(client)
+    respx.post(f"{API}/api/tasks").mock(return_value=httpx.Response(401))
+    client.post("/new", data={"title": "Keep me", "csrf_token": csrf}, follow_redirects=False)
+
+    respx.post(f"{API}/api/auth/login").mock(
+        return_value=httpx.Response(401, json={"detail": "invalid credentials"})
+    )
+    wrong_csrf = extract_csrf(client.get("/login").text)
+    resp = client.post(
+        "/login",
+        data={"email": "alice@example.com", "password": "nope", "csrf_token": wrong_csrf},
+        follow_redirects=False,
+    )
+
+    assert resp.status_code == 200
+    assert 'data-testid="login-error"' in resp.text
+    assert 'data-testid="session-expired"' in resp.text
+
+    login(client)
+    body = client.get("/new").text
+    assert 'value="Keep me"' in body
+
+
+@respx.mock
+def test_draft_dropped_when_a_different_user_logs_in(client: TestClient) -> None:
+    csrf = login(client)
+    respx.post(f"{API}/api/tasks").mock(return_value=httpx.Response(401))
+    client.post(
+        "/new",
+        data={"title": "Alice's secret plan", "csrf_token": csrf},
+        follow_redirects=False,
+    )
+
+    respx.post(f"{API}/api/auth/login").mock(
+        return_value=httpx.Response(
+            200, json={"token": "tok-bob-0001", "expires_at": "2026-01-01T01:00:00Z"}
+        )
+    )
+    bob_csrf = extract_csrf(client.get("/login").text)
+    resp = client.post(
+        "/login",
+        data={"email": "bob@example.com", "password": "pw", "csrf_token": bob_csrf},
+        follow_redirects=False,
+    )
+
+    assert resp.status_code == 303
+    body = client.get("/new").text
+    assert "Alice's secret plan" not in body
+    assert 'value="Alice' not in body
+
+
+@respx.mock
+def test_post_new_clears_a_stale_stashed_draft(client: TestClient) -> None:
+    csrf = login(client)
+    respx.post(f"{API}/api/tasks").mock(return_value=httpx.Response(401))
+    client.post("/new", data={"title": "Stale draft", "csrf_token": csrf}, follow_redirects=False)
+    login(client)
+
+    new_csrf = extract_csrf(client.get("/new").text)
+    respx.post(f"{API}/api/tasks").mock(
+        return_value=httpx.Response(201, json={**SEEDED[0], "id": 10, "title": "Fresh submit"})
+    )
+    resp = client.post(
+        "/new",
+        data={"title": "Fresh submit", "csrf_token": new_csrf},
+        follow_redirects=False,
+    )
+
+    assert resp.status_code == 303
+    body = client.get("/new").text
+    assert "Stale draft" not in body
+
+
+@respx.mock
+def test_oversized_draft_is_not_stashed_and_session_stays_usable(client: TestClient) -> None:
+    csrf = login(client)
+    respx.post(f"{API}/api/tasks").mock(return_value=httpx.Response(401))
+
+    resp = client.post(
+        "/new",
+        data={"title": "x" * (DRAFT_MAX_BYTES + 500), "csrf_token": csrf},
+        follow_redirects=False,
+    )
+
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/login?next=/new"
+    login_body = client.get("/login").text
+    assert 'data-testid="session-expired"' in login_body
+
+    login(client)
+    body = client.get("/new").text
+    assert "x" * (DRAFT_MAX_BYTES + 500) not in body
+
+
+@respx.mock
+def test_session_expired_notice_markup_carries_no_role_tabindex_or_landmark(
+    client: TestClient,
+) -> None:
+    login(client)
+    respx.get(f"{API}/api/auth/me").mock(return_value=httpx.Response(401))
+    client.get("/", follow_redirects=False)
+
+    body = client.get("/login").text
+
+    assert 'data-testid="session-expired"' in body
+    start = body.index('data-testid="session-expired"')
+    tag_start = body.rindex("<div", 0, start)
+    tag_end = body.index(">", start)
+    tag = body[tag_start:tag_end]
+    assert "role=" not in tag
+    assert "tabindex" not in tag
+    assert "autofocus" not in tag
+
+
+@respx.mock
+def test_restored_draft_values_are_html_escaped(client: TestClient) -> None:
+    csrf = login(client)
+    respx.post(f"{API}/api/tasks").mock(return_value=httpx.Response(401))
+    client.post(
+        "/new",
+        data={"title": '<script>"boom"</script>', "csrf_token": csrf},
+        follow_redirects=False,
+    )
+    login(client)
+
+    body = client.get("/new").text
+
+    assert '<script>"boom"</script>' not in body
+    assert "&lt;script&gt;" in body
+
+
+@respx.mock
+def test_new_task_error_rerender_paths_leave_no_stashed_draft(client: TestClient) -> None:
+    csrf = login(client)
+    respx.post(f"{API}/api/tasks").mock(
+        return_value=httpx.Response(
+            422,
+            json={"detail": [{"loc": ["body", "title"], "type": "value_error"}]},
+        )
+    )
+    client.post(
+        "/new",
+        data={"title": " ", "description": "kept locally", "csrf_token": csrf},
+        follow_redirects=False,
+    )
+
+    body = client.get("/new").text
+    assert "kept locally" not in body
 
 
 # --- advance / delete ------------------------------------------------------

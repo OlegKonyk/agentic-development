@@ -2,6 +2,11 @@
 {% block title %}Log in — Taskboard{% endblock %}
 {% block content %}
 <h2>Log in</h2>
+{% if session_expired %}
+<div class="banner-notice" data-testid="session-expired">
+  Your session expired. Please sign in again.
+</div>
+{% endif %}
 {% if error %}
 <div class="banner-error" data-testid="login-error">
   Invalid email or password.
