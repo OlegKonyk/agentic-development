@@ -23,6 +23,7 @@ from web.main import (
     normalize_status,
     parse_due_at,
     parse_page,
+    reminder_health_url,
     safe_next,
     title_rejected,
     to_rfc3339_z,
@@ -677,6 +678,69 @@ def test_new_and_login_pages_never_render_degraded_banner(client: TestClient) ->
 
     assert 'data-testid="reminder-degraded-banner"' not in login_body
     assert 'data-testid="reminder-degraded-banner"' not in new_body
+
+
+# --- reminder health origin (fault-injection lever) --------------------------
+
+
+def test_reminder_health_url_defaults_to_api_base(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("REMINDER_HEALTH_BASE_URL", raising=False)
+    assert reminder_health_url(API) == f"{API}/api/reminders/health"
+
+    monkeypatch.setenv("REMINDER_HEALTH_BASE_URL", "")
+    assert reminder_health_url(API) == f"{API}/api/reminders/health"
+
+
+def test_reminder_health_url_honours_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("REMINDER_HEALTH_BASE_URL", "http://lever:8667/")
+    assert reminder_health_url(API) == "http://lever:8667/api/reminders/health"
+
+
+@respx.mock
+def test_health_call_uses_override_origin_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("REMINDER_HEALTH_BASE_URL", "http://lever:8667")
+    with TestClient(create_app()) as client:
+        login(client)
+        me = respx.get(f"{API}/api/auth/me").mock(return_value=httpx.Response(200, json=ME))
+        tasks = respx.get(f"{API}/api/tasks").mock(
+            return_value=httpx.Response(200, json=page_body(SEEDED))
+        )
+        base_health = respx.get(f"{API}/api/reminders/health").mock(
+            return_value=httpx.Response(200, json={"state": "healthy"})
+        )
+        lever_health = respx.get("http://lever:8667/api/reminders/health").mock(
+            return_value=httpx.Response(200, json={"state": "degraded"})
+        )
+
+        resp = client.get("/")
+
+        assert resp.status_code == 200
+        assert 'data-testid="reminder-degraded-banner"' in resp.text
+        assert lever_health.called
+        assert base_health.call_count == 0
+        assert me.called
+        assert tasks.called
+
+
+@respx.mock
+@pytest.mark.parametrize(
+    "fault", [httpx.ConnectError("refused"), httpx.ReadTimeout("stalled")], ids=["fail", "timeout"]
+)
+def test_board_renders_without_banner_when_health_origin_faults(
+    monkeypatch: pytest.MonkeyPatch, fault: Exception
+) -> None:
+    monkeypatch.setenv("REMINDER_HEALTH_BASE_URL", "http://lever:8667")
+    with TestClient(create_app()) as client:
+        login(client)
+        respx.get(f"{API}/api/auth/me").mock(return_value=httpx.Response(200, json=ME))
+        respx.get(f"{API}/api/tasks").mock(return_value=httpx.Response(200, json=page_body(SEEDED)))
+        respx.get("http://lever:8667/api/reminders/health").mock(side_effect=fault)
+
+        resp = client.get("/")
+
+        assert resp.status_code == 200
+        assert resp.text.count('data-testid="task-row"') == 3
+        assert 'data-testid="reminder-degraded-banner"' not in resp.text
 
 
 # --- board status filter -----------------------------------------------------

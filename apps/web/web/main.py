@@ -68,9 +68,18 @@ API_UNAVAILABLE_MESSAGE = "The task API is unavailable. Please try again shortly
 INVALID_TITLE_MESSAGE = "Title must contain at least one non-whitespace character."
 INVALID_INPUT_MESSAGE = "Please check the task details and try again."
 REMINDER_HEALTH_TIMEOUT = 2.0
+REMINDER_HEALTH_PATH = "/api/reminders/health"
 DEGRADED_REMINDERS_MESSAGE = (
     "Reminder delivery is currently degraded — your reminders may be delayed."
 )
+
+
+def reminder_health_url(api_base_url: str) -> str:
+    """Origin for the health call. `REMINDER_HEALTH_BASE_URL` (test profile) routes it
+    through a dedicated proxy so a fault can hit this call alone; unset -> same origin
+    as every other API call."""
+    base = os.environ.get("REMINDER_HEALTH_BASE_URL", "").strip() or api_base_url
+    return f"{base.rstrip('/')}{REMINDER_HEALTH_PATH}"
 
 
 class AuthRedirect(Exception):
@@ -153,11 +162,13 @@ def title_rejected(detail: object) -> bool:
     return any(isinstance(item, dict) and "title" in (item.get("loc") or []) for item in detail)
 
 
-async def reminders_degraded(client: httpx.AsyncClient, token: str) -> bool:
+async def reminders_degraded(
+    client: httpx.AsyncClient, token: str, url: str = REMINDER_HEALTH_PATH
+) -> bool:
     """True only on a definite `degraded`; any doubt reads as healthy."""
     try:
         resp = await client.get(
-            "/api/reminders/health",
+            url,
             headers={"Authorization": f"Bearer {token}"},
             timeout=REMINDER_HEALTH_TIMEOUT,
         )
@@ -170,6 +181,7 @@ async def reminders_degraded(client: httpx.AsyncClient, token: str) -> bool:
 
 def create_app() -> FastAPI:
     api_base_url = os.environ.get("API_BASE_URL", "http://localhost:8000")
+    health_url = reminder_health_url(api_base_url)
     secret_key = os.environ.get("SECRET_KEY", "dev-session-secret")
 
     @asynccontextmanager
@@ -315,7 +327,7 @@ def create_app() -> FastAPI:
         # Skip the health round-trip when the tasks fetch already failed: a
         # second doomed call adds nothing, and AC-8 requires the api-error
         # banner to show without the degraded banner alongside it.
-        degraded = False if api_error else await reminders_degraded(api(request), token)
+        degraded = False if api_error else await reminders_degraded(api(request), token, health_url)
         now = datetime.now(UTC)
         columns = {status: decorate_tasks(tasks, now) for status, tasks in columns.items()}
         return templates.TemplateResponse(

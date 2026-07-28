@@ -15,11 +15,15 @@ async reminder jobs, a programmable vendor, signed webhooks, and a chaos layer.
 | `db` | postgres:17-alpine | 5432 | `pg_isready` |
 | `redis` | redis:7-alpine | 6379 | `redis-cli ping` |
 | `vendor-mock` | wiremock/wiremock:3.13.2 | 8081→8080 | `GET /__admin/health` |
-| `toxiproxy` | ghcr.io/shopify/toxiproxy:2.12.0 | 8474 (admin) | `GET /version` |
+| `toxiproxy` | ghcr.io/shopify/toxiproxy:2.12.0 | 8474 (admin), 8667 (web→api health lever) | `GET /version` |
 | gateway | wrangler dev (host, not compose) | 8787 | `GET /gw/healthz` |
 
 CI/test profile routing (via toxiproxy listeners): api→db uses `toxiproxy:5433`,
-api/worker→vendor uses `toxiproxy:8666`. Dev profile connects directly.
+api/worker→vendor uses `toxiproxy:8666`. web's `GET /api/reminders/health` call
+uses `toxiproxy:8667` (`REMINDER_HEALTH_BASE_URL`), so it can be faulted
+independently of `GET /api/tasks`; unset (dev profile) it falls back to
+`API_BASE_URL`, same origin as every other web→API call. Dev profile connects
+directly.
 CI Postgres runs on tmpfs with `fsync=off synchronous_commit=off`.
 Test harnesses raise the gateway request budget (`wrangler dev --var
 RATE_LIMIT:600`; production-realistic default 60 req/10 s) — full-suite e2e
@@ -182,7 +186,11 @@ content block, above the filter nav, only when the health state is exactly
 unparseable body, 401) renders no banner and never blocks or breaks the board.
 The banner adds no landmark (the page keeps exactly one `banner` and one
 `main`) and is absent from the DOM when not showing, not merely hidden; `/new`
-and `/login` never render it. Otherwise the board's first content element (the
+and `/login` never render it. The health call's origin is `API_BASE_URL`
+unless `REMINDER_HEALTH_BASE_URL` is set (test profile only), in which case
+that origin is used instead — routing only, no change to the call's headers,
+timeout, or outcome handling; every other web→API call is unaffected.
+Otherwise the board's first content element (the
 second, when the degraded banner is present) is a filter nav
 `data-testid="status-filter"` with four links — `filter-all` (→ `/`),
 `filter-todo`, `filter-doing`, `filter-done` (→ `/?status=<status>`) — of
@@ -209,11 +217,28 @@ the QA agent) signing payloads with `VENDOR_WEBHOOK_SECRET`.
 ## Chaos contract (Toxiproxy)
 
 Admin `http://localhost:8474`. Proxies (pre-populated from
-`toxiproxy/config.json`): `db` :5433→db:5432, `vendor` :8666→vendor-mock:8080.
-Test client: `qa_helpers.toxiproxy.ToxiproxyClient` (httpx wrapper:
-`add_toxic`, `remove_toxic`, `reset_all`; always `toxicity=1.0`, `jitter=0`).
-Teardown guarantee: fixtures must remove toxics in finalizers; a session guard
-asserts no toxics leak between tests.
+`toxiproxy/config.json`): `db` :5433→db:5432, `vendor` :8666→vendor-mock:8080,
+`web-health` :8667→api:8000. Test client: `qa_helpers.toxiproxy.ToxiproxyClient`
+(httpx wrapper: `add_toxic`, `remove_toxic`, `reset_all`; always
+`toxicity=1.0`, `jitter=0`). Teardown guarantee: fixtures must remove toxics in
+finalizers; a session guard asserts no toxics leak between tests.
+
+`web-health` faults **only** the web app's `GET /api/reminders/health` call
+(via `REMINDER_HEALTH_BASE_URL`), leaving `GET /api/tasks` and every other
+web→API call untouched — the lever ticket #31 added so QA can prove "one
+signal degrades, the rest stays healthy" ACs end-to-end, which the shared
+`db`/`vendor` proxies can't (every fault on them also breaks `GET /api/tasks`).
+Default state: enabled, no toxics — transparent passthrough, same as `db`.
+Test client: `qa_helpers.health_lever.HealthLever`, built on top of
+`ToxiproxyClient` (so its toxics are covered by the same leak guard); modes
+`fail()` (`reset_peer`, toxic name `health_fail` — the web app sees
+`httpx.HTTPError`) and `timeout()` (`timeout`, toxic name `health_timeout` —
+stalls the stream past the web app's 2s health-call timeout), `release()`
+(idempotent), `engaged_faults()`, and `probe(token)` (GETs the health endpoint
+directly through `localhost:8667`, bypassing the web app). Fixture
+`qa_helpers.health_lever.health_lever` (imported into `qa/tests/e2e/conftest.py`)
+finalizes by releasing and then asserting the listener passes a request
+through again, mirroring the `toxiproxy` fixture's recovery gate.
 
 ## QA suites (qa/)
 
@@ -230,7 +255,13 @@ asserts no toxics leak between tests.
   `clean_reminder_health` fixtures) — appears/clears deterministically, board
   stays functional (advance/delete still work) while showing, and the page
   keeps exactly one banner/main landmark plus one `status` region with no
-  stolen focus.
+  stolen focus. Also imports the Toxiproxy no-leak guard (previously only in
+  `tests/resilience/`) so the `health_lever` fixture's toxics are covered too.
+  `tests/e2e/test_health_lever.py` proves the partial-degradation class of AC:
+  the `health_lever` fixture faults only the reminder-health call (fail or
+  timeout) and the board still renders with no degraded banner, `GET
+  /api/tasks` returns an identical envelope through the gateway, and board
+  actions (advance/delete) keep working.
 - `tests/contract/` — Schemathesis v4 against the API (auth'd via bearer
   override), replaying a committed corpus (`tests/contract/corpus.json`, ≤25
   cases per operation) instead of generating on the fly — no PRNG in the
