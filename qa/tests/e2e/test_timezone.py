@@ -25,6 +25,22 @@ def _local_value(at: datetime) -> str:
     return at.strftime("%Y-%m-%dT%H:%M")
 
 
+def _near_future_local_value(zone: ZoneInfo, buffer_seconds: float = 2.0) -> tuple[str, float]:
+    """A due value that is still in the future after minute-granularity
+    truncation, plus the seconds until it actually elapses.
+
+    `datetime-local` (and `_local_value`) only carries minute precision. A
+    value merely a few seconds past 'now' truncates to the *same* minute as
+    'now' itself unless 'now' happens to be right at a minute boundary, so it
+    is rejected as not-in-the-future the rest of the time. Rounding up to the
+    next minute boundary first removes that race.
+    """
+    now = datetime.now(zone)
+    next_minute = now.replace(second=0, microsecond=0) + timedelta(minutes=1)
+    target = next_minute + timedelta(seconds=buffer_seconds)
+    return _local_value(target), (target - now).total_seconds()
+
+
 def test_new_form_names_the_viewers_time_zone(zoned_alice_page: Callable[[str], Page]) -> None:
     page = zoned_alice_page("Europe/Berlin")
     page.goto("/new")
@@ -129,7 +145,7 @@ def test_overdue_badge_flips_at_the_intended_local_moment(
     alice_api: ApiClient, zoned_alice_page: Callable[[str], Page]
 ) -> None:
     page = zoned_alice_page("Europe/Berlin")
-    due_local = _local_value(datetime.now(ZoneInfo("Europe/Berlin")) + timedelta(seconds=3))
+    due_local, wait_seconds = _near_future_local_value(ZoneInfo("Europe/Berlin"))
     page.goto("/new")
     page.get_by_test_id("title-input").fill("AC-7 overdue flip")
     page.get_by_test_id("due-at-input").fill(due_local)
@@ -143,14 +159,18 @@ def test_overdue_badge_flips_at_the_intended_local_moment(
         row = page.get_by_test_id("task-row").filter(has_text="AC-7 overdue flip")
         return row.get_by_test_id("overdue-badge").count() == 1
 
-    wait_until(overdue_shown, timeout=15, message="overdue-badge shows at the intended moment")
+    wait_until(
+        overdue_shown,
+        timeout=wait_seconds + 20,
+        message="overdue-badge shows at the intended moment",
+    )
 
 
 def test_reminder_fires_at_the_intended_instant(
     alice_api: ApiClient, zoned_alice_page: Callable[[str], Page]
 ) -> None:
     page = zoned_alice_page("Europe/Berlin")
-    due_local = _local_value(datetime.now(ZoneInfo("Europe/Berlin")) + timedelta(seconds=3))
+    due_local, wait_seconds = _near_future_local_value(ZoneInfo("Europe/Berlin"))
     page.goto("/new")
     page.get_by_test_id("title-input").fill("AC-8 reminder instant")
     page.get_by_test_id("due-at-input").fill(due_local)
@@ -163,7 +183,12 @@ def test_reminder_fires_at_the_intended_instant(
         alice_api.run_due_reminders()
         return alice_api.get_task(task["id"])["reminder_status"] != "none"
 
-    wait_until(reminder_left_none, timeout=90, interval=2, message="reminder leaves 'none'")
+    wait_until(
+        reminder_left_none,
+        timeout=wait_seconds + 30,
+        interval=2,
+        message="reminder leaves 'none'",
+    )
 
 
 def test_without_javascript_times_are_utc_and_labelled_utc(
