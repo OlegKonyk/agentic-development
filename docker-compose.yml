@@ -7,7 +7,9 @@ x-api-build: &api-build
   dockerfile: apps/api/Dockerfile
 
 # api/worker traffic goes through toxiproxy (db :5433, vendor :8666) so the
-# resilience suite can inject faults. One-shot migrate/seed talk to db directly.
+# resilience suite can inject faults. web's reminder-health call alone goes
+# through toxiproxy (web-health :8667→api:8000) so that call can be faulted
+# independently of GET /api/tasks. One-shot migrate/seed talk to db directly.
 x-api-env: &api-env
   DATABASE_URL: postgresql+asyncpg://taskboard:taskboard@toxiproxy:5433/taskboard
   REDIS_URL: redis://redis:6379/0
@@ -53,8 +55,13 @@ services:
     environment:
       API_BASE_URL: http://api:8000
       SECRET_KEY: dev-session-secret
+      # Routes only the reminder-health call through its own toxiproxy listener
+      # so a fault can be scoped to that call alone (docs/apps.md chaos contract).
+      REMINDER_HEALTH_BASE_URL: http://toxiproxy:8667
     depends_on:
       api:
+        condition: service_healthy
+      toxiproxy:
         condition: service_healthy
     healthcheck:
       test:
@@ -173,6 +180,9 @@ services:
     command: ["-config", "/config.json", "-host", "0.0.0.0"]
     ports:
       - "8474:8474"
+      # web-health lever passthrough probe (qa_helpers.health_lever) needs a
+      # host-reachable listener, same as every other toxiproxy-fronted route.
+      - "8667:8667"
     volumes:
       - ./toxiproxy/config.json:/config.json:ro
     # Scratch image: no shell/curl/wget, but /toxiproxy-cli is bundled and

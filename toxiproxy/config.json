@@ -10,5 +10,11 @@
     "listen": "0.0.0.0:8666",
     "upstream": "vendor-mock:8080",
     "enabled": true
+  },
+  {
+    "name": "web-health",
+    "listen": "0.0.0.0:8667",
+    "upstream": "api:8000",
+    "enabled": true
   }
 ]
