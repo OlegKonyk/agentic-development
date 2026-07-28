@@ -195,8 +195,12 @@ def test_row_actions_have_task_scoped_accessible_names(
 
     for title in ("Alpha task", "Beta task"):
         row = alice_page.get_by_test_id("task-row").filter(has_text=title)
+        expect(row.get_by_test_id("move-back-btn")).to_have_accessible_name(f"Move back {title}")
         expect(row.get_by_test_id("advance-btn")).to_have_accessible_name(f"Advance {title}")
         expect(row.get_by_test_id("delete-btn")).to_have_accessible_name(f"Delete {title}")
+        expect(
+            alice_page.get_by_role("button", name=f"Move back {title}", exact=True)
+        ).to_have_count(1)
         expect(alice_page.get_by_role("button", name=f"Advance {title}", exact=True)).to_have_count(
             1
         )
@@ -210,7 +214,23 @@ def test_row_action_testids_and_text_are_unchanged(alice_api: ApiClient, alice_p
     alice_page.goto("/")
 
     row = alice_page.get_by_test_id("task-row").filter(has_text="Unchanged task")
+    move_back = row.get_by_test_id("move-back-btn")
     advance = row.get_by_test_id("advance-btn")
     delete = row.get_by_test_id("delete-btn")
+    expect(move_back).to_have_text("Move back")
     expect(advance).to_have_text("Advance")
     expect(delete).to_have_text("Delete")
+
+
+def test_row_action_focus_order(alice_api: ApiClient, alice_page: Page) -> None:
+    alice_api.create_task("Focus order task")
+    alice_page.goto("/")
+    row = alice_page.get_by_test_id("task-row").filter(has_text="Focus order task")
+
+    seq = _tab_sequence(alice_page)
+    row_actions = ["move-back-btn", "advance-btn", "delete-btn"]
+    observed = [t for t in seq if t in row_actions]
+    assert observed == row_actions, (
+        f"row action focus order was {observed}, expected {row_actions} (full sequence: {seq})"
+    )
+    expect(row.get_by_test_id("move-back-btn")).to_be_visible()

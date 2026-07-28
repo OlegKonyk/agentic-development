@@ -48,6 +48,69 @@ def test_advance_task_todo_doing_done(alice_api: ApiClient, alice_page: Page) ->
     expect(row.get_by_test_id("task-status")).to_have_text("done")
 
 
+def test_move_back_done_doing_todo(alice_api: ApiClient, alice_page: Page) -> None:
+    alice_api.create_task("Move me back", "created via API")
+    alice_page.goto("/")
+    row = _row(alice_page, "Move me back")
+    row.get_by_test_id("advance-btn").click()
+    row.get_by_test_id("advance-btn").click()
+    expect(row.get_by_test_id("task-status")).to_have_text("done")
+    row.get_by_test_id("move-back-btn").click()
+    expect(row.get_by_test_id("task-status")).to_have_text("doing")
+    row.get_by_test_id("move-back-btn").click()
+    expect(row.get_by_test_id("task-status")).to_have_text("todo")
+
+
+def test_move_back_on_todo_task_is_noop(alice_api: ApiClient, alice_page: Page) -> None:
+    alice_api.create_task("Stays todo", "created via API")
+    alice_page.goto("/")
+    row = _row(alice_page, "Stays todo")
+    row.get_by_test_id("move-back-btn").click()
+    row = _row(alice_page, "Stays todo")
+    expect(row.get_by_test_id("task-status")).to_have_text("todo")
+    expect(alice_page.get_by_test_id("task-list").first).to_be_visible()
+    expect(alice_page.get_by_test_id("api-error")).to_have_count(0)
+
+
+def test_move_back_preserves_task_fields(alice_api: ApiClient, alice_page: Page) -> None:
+    task = alice_api.create_due_task("Preserve me", in_seconds=2)
+
+    def reminder_pending() -> bool:
+        alice_api.run_due_reminders()
+        return alice_api.get_task(task["id"])["reminder_status"] != "none"
+
+    wait_until(reminder_pending, timeout=15, message="reminder_status leaves none")
+
+    alice_page.goto("/")
+    row = _row(alice_page, "Preserve me")
+    task_id = row.get_attribute("data-task-id")
+    due_label = row.get_by_test_id("due-at").inner_text()
+    reminder_text = row.get_by_test_id("reminder-badge").inner_text()
+    row.get_by_test_id("advance-btn").click()
+    row = _row(alice_page, "Preserve me")
+    row.get_by_test_id("move-back-btn").click()
+    row = _row(alice_page, "Preserve me")
+    expect(row).to_have_attribute("data-task-id", task_id)
+    expect(row.get_by_test_id("task-title")).to_have_text("Preserve me")
+    expect(row.get_by_test_id("due-at")).to_have_text(due_label)
+    expect(row.get_by_test_id("reminder-badge")).to_have_text(reminder_text)
+    expect(row.get_by_test_id("task-status")).to_have_text("todo")
+
+
+def test_move_back_returns_to_filtered_board(alice_api: ApiClient, alice_page: Page) -> None:
+    alice_api.create_task("Filtered move back", "created via API")
+    alice_page.goto("/")
+    row = _row(alice_page, "Filtered move back")
+    row.get_by_test_id("advance-btn").click()
+
+    alice_page.goto("/?status=doing")
+    row = _row(alice_page, "Filtered move back")
+    row.get_by_test_id("move-back-btn").click()
+
+    expect(alice_page).to_have_url(re.compile(r"/\?status=doing$"))
+    expect(alice_page.get_by_test_id("filter-doing")).to_have_attribute("aria-current", "page")
+
+
 def test_delete_task_removes_row(alice_api: ApiClient, alice_page: Page) -> None:
     alice_api.create_task("Delete me", "created via API")
     alice_page.goto("/")
