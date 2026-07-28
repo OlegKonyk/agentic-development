@@ -48,6 +48,21 @@ def board_url(status: str | None, page: int = 1) -> str:
     return f"/?{'&'.join(params)}" if params else "/"
 
 
+def empty_state(api_error: bool, active: str | None, total: int | None) -> str | None:
+    """Which empty message the board shows: 'board', 'filter', or None.
+
+    A failed tasks fetch never reads as "you have no tasks" — the `api-error`
+    banner owns that case. `total` is the total of the *rendered* set (the
+    filtered set when a filter is active), so exactly one of the two messages
+    can apply.
+    """
+    if api_error or total:
+        return None
+    if total is None:
+        return None
+    return "filter" if active else "board"
+
+
 def filter_options(active: str | None) -> list[dict[str, object]]:
     """The four filter links in order (all, todo, doing, done), active one marked."""
     values: tuple[str | None, ...] = (None, *STATUS_COLUMNS)
@@ -304,6 +319,7 @@ def create_app() -> FastAPI:
         current = parse_page(page)
         page_count = 1
         task_count = 0
+        view_total: int | None = None
         user_email: str | None = None
         api_error = False
         try:
@@ -331,6 +347,7 @@ def create_app() -> FastAPI:
             if current > page_count:
                 current = 1
                 body = await fetch_page(current)
+            view_total = body["total"]
             for task in body["items"]:
                 columns.setdefault(task.get("status", "todo"), []).append(task)
             if active:
@@ -349,6 +366,7 @@ def create_app() -> FastAPI:
         # second doomed call adds nothing, and AC-8 requires the api-error
         # banner to show without the degraded banner alongside it.
         degraded = False if api_error else await reminders_degraded(api(request), token, health_url)
+        empty = empty_state(api_error, active, view_total)
         now = datetime.now(UTC)
         columns = {status: decorate_tasks(tasks, now) for status, tasks in columns.items()}
         return templates.TemplateResponse(
@@ -360,6 +378,7 @@ def create_app() -> FastAPI:
                 "filters": filter_options(active),
                 "active_status": active,
                 "api_error": api_error,
+                "empty_state": empty,
                 "authed": True,
                 "user_email": user_email,
                 "task_count": task_count,

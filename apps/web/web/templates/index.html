@@ -18,10 +18,19 @@
      {% if option.active %}aria-current="page"{% endif %}>{{ option.label }}</a>
   {% endfor %}
 </nav>
+{% if empty_state == "board" %}
+<p class="empty-state" data-testid="empty-board">
+  No tasks yet.
+  <a href="/new" data-testid="empty-board-new-link">Add your first task</a>
+</p>
+{% endif %}
 <div class="board" data-testid="task-list">
   {% for status in statuses %}
   <section class="column" id="column-{{ status }}">
     <h2>{{ status }}</h2>
+    {% if empty_state == "filter" %}
+    <p class="empty-state" data-testid="empty-filter">Nothing in {{ status }} right now.</p>
+    {% endif %}
     {% for task in columns[status] %}
     <div class="task{% if task.overdue %} overdue{% endif %}" data-testid="task-row" data-task-id="{{ task.id }}">
       <div class="title" data-testid="task-title">{{ task.title }}</div>
