@@ -122,13 +122,21 @@ kept inside the governance that has held so far.
 - **Round 1 (lab owner, in-role):** run the remaining calibration tickets
   (#4 filter, #7 degraded-reminder banner, #8 pagination) exercising each
   seat's playbook touchpoints; first brief; retro proposals begin flowing.
-- **Round 2 (team pilot):** 21–30 day window, predefined ledger, each team
-  member working their seat per playbook; forecast/perceived/measured per
-  ticket; second brief makes the case.
+- **Round 2 (rehearsal, lab owner solo):** the Round 2 ledger run against all
+  six seats by one operator. It deliberately does *not* answer the research
+  question — one person cannot generate handoff friction, review fatigue, or
+  authority conflict. What it does answer is whether the ledger, the forecasts
+  and the new gates survive a multi-ticket window, so the real pilot spends its
+  scarce commodity (five people's attention) on the operating model rather than
+  on the lab's own bugs. Rehearsals are cheap; a wasted team-month is not.
+- **Round 3 (team pilot):** the real thing. 21–30 day window, the rehearsed
+  ledger, each teammate working their seat per playbook;
+  forecast/perceived/measured per ticket; the brief that makes the case.
 
-Exit criteria for calling the experiment a result either way: three rounds of
-briefs with stable metrics definitions, a failure ledger, and at least one
-round of the real team in-role.
+Exit criteria for calling the experiment a result either way: briefs from the
+rehearsal and the pilot with stable metrics definitions, a failure ledger, and
+at least one round of the real team in-role — that last condition is met only
+by Round 3, and no amount of solo running substitutes for it.
 
 ## Threats to validity (standing limitations)
 

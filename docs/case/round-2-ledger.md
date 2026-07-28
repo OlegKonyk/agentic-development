@@ -1,8 +1,17 @@
-# Round 2 ledger — team pilot (DRAFT, pre-flight)
+# Round 2 ledger — rehearsal (lab owner solo)
 
-_DRAFT. Must be merged, dates confirmed and forecasts frozen, **before** the
-round's first `stage:spec`. Nothing here may be added, removed, or re-forecast
-once the window opens; changes go in the brief's failure ledger instead._
+_Frozen at the first `stage:spec`. Nothing here may be added, removed, or
+re-forecast once the window opens; changes go in the brief's failure ledger
+instead._
+
+**This round is a rehearsal, not the pilot.** The owner runs all six seats
+alone, as in Round 1. It cannot produce the finding the lab exists for — one
+operator generates no handoff friction, no review fatigue, no authority
+conflict — and any brief claiming otherwise would be dishonest. What it buys is
+that the **team pilot (Round 3) spends five people's attention on the operating
+model instead of on this document's bugs**: the ledger, the forecasts and the
+four gates added during readiness get their first multi-ticket exercise here,
+where the only thing at risk is the owner's own time.
 
 ## Purpose, and what this round can / cannot prove
 
@@ -15,7 +24,10 @@ merges, who raises a cap), and whether seat boundaries hold when occupants disag
 **Comparison:** the frozen Round 0 baseline and Round 1's measured results. Round 0's
 cost column is a documented undercount — only QA phases posted cost comments then
 (`round-0-baseline.md`) — so **cost cannot be trended against it**; lead time, rework
-and parks can. **Lead time is reported but not compared**: the owner will continue
+and parks can. **One operator, six seats** — the same standing limitation as
+Round 1, and the reason this round is named a rehearsal: it can show that the
+ledger and the gates work, and cannot show what happens when the seats are five
+other people. **Lead time is reported but not compared**: the owner will continue
 other heavy use of the shared subscription token during the window (Pre-flight), so
 wall-clock is contaminated by contention with work outside the round. Cost and turns
 are per-run figures and stay comparable. There is **no control lane** — no manual-only tickets, no randomization,
@@ -103,23 +115,24 @@ effort a "before" leg: Round 1 measured 51/31/31 min for #4/#7/#8.
   the ticket says none of that. Finding the need already met is equally valid: killing
   it at the gate because #7 covered it is a **success** here, and the seat's judgment is
   what is measured. _Either ≤$2/≤20 min (spec written, then killed) or $6–18/~90 min._
-- **R2-9 — Make a green contract run reproducible.** (medium; QA infrastructure; QA)
-  Hypothesis input generation varies across processes even under `derandomize=True`
-  (PR #14 failed on a real NUL-byte 500, then passed on byte-identical code), so a green
-  contract tier is only probabilistic evidence — and the obvious lever is not one:
-  `derandomize=True` forces `database=None`, and an example database replays only
-  recorded failures, so it cannot constrain generation. Desired outcome: the same tree
-  re-run reaches the same verdict, and a find once made stays found; how, and at what
-  cost to coverage, is the spec's call. _$5–9, 0–1 rework, ~75 min; no product code._
+- **R2-9 — WITHDRAWN before the window opened: already shipped.** This slot asked
+  for a reproducible contract verdict. That work ran as ticket #36 during the
+  readiness batch (PR #40): generation left the gating path entirely, the tier now
+  replays a committed corpus, and drift is a failing named test. Removing it here
+  rather than re-running it is the frozen-ledger rule working as intended — the
+  ledger froze *after* this was noticed, not before. Measured for the record:
+  0.91 h, $4.56 counted, 0 rework, 1 park.
 
-Totals (forecast): **$51–100** — floor $51 if R2-8 is killed at the gate, $55 if not —
+Totals (forecast, eight live tickets): **$46–91** — floor $51 if R2-8 is killed at the gate, $55 if not —
 ≤12 rework cycles, ≤6 unplanned parks, ~12 h wall clock, ≥7 of 9 deployed in-window.
 
 ## Seat assignment
 
-_Names below are **placeholders** pending the owner's real assignment — they exist
-so round-open comments can address a person rather than a role. Swap them before the
-window opens; nothing else in this document depends on them._
+_All six seats are **simulated by the lab owner** this round; the names below are
+placeholders held for the Round 3 assignment, so round-open comments can address a
+person rather than a role. The seat columns still bind: the owner works each seat's
+touchpoints per its playbook, and an act taken outside the seat that owns it is a
+finding, exactly as it would be with five other people._
 
 | Seat | Person (placeholder) | Owns this round | Playbook |
 |---|---|---|---|
@@ -166,7 +179,13 @@ included. An override forced by conflict is a **finding**: who overrode whom, wh
 
 ## Pre-flight — repo-owner-only actions
 
-No teammate and no agent can do these; all are checked off here before the window.
+**For the rehearsal, only the last three apply** — nobody needs access to a repo
+they are not yet working in, and the repo is public, so the team can read every
+ticket, verdict and brief as it happens without any grant at all. The access and
+acknowledgment items are **deferred to Round 3** and stay unchecked here as that
+round's gate: collaborator invites accepted, `write` per seat, the `maintain`
+role plus its ruleset bypass for the dev manager, spend acknowledgments in
+writing, and each seat confirming it has read its playbook.
 
 - [ ] **Collaborator invites accepted** by PM, DM, DEV-A, DEV-B, INFRA — accepted, not sent.
 - [ ] **Permission per seat:** `write` for all five (`triage` can label but not merge;
