@@ -69,7 +69,11 @@ returned page and `total` describe the filtered set. `total` ignores
 correct `total` — never 404. Out-of-bounds or non-integer `limit`/`offset` →
 422, same validation-error shape as `due_at`/`title` (the `offset` upper bound
 guards the same asyncpg bind-overflow class as the `TaskId` path bound).
-Ordering is unchanged (ascending task id). A whitespace-only `title` on create
+Ordering is board-wide urgency, the only order the endpoint offers (no
+ordering/sort query parameter): soonest `due_at` first, tasks with no `due_at`
+after every dated task, ascending task id as tie-break. This is a total order
+applied *before* `limit`/`offset`, so it survives paging — page 1 is the most
+urgent page and every task lands on exactly one page. A whitespace-only `title` on create
 or update → 422, same validation-error shape as `due_at`. A JSON string carrying an
 unpaired UTF-16 surrogate or NUL (`\u0000`) — valid JSON, unstorable in
 Postgres — → 422 on every model-validated body route (login and tasks); the
@@ -149,8 +153,10 @@ task has a `due_at`; `reminder-badge` when status ≠ none; new
 (absent from the DOM otherwise, not merely hidden); within each column, rows
 are ordered by soonest `due_at` first, undated tasks last, ascending task id
 as tie-break — ordering and the overdue flag compare aware UTC instants and
-are unaffected by the viewer's zone; `GET /api/tasks` ordering and payload
-are unchanged, this is a web-layer-only concern); row actions carry
+are unaffected by the viewer's zone; the page the web receives is already in
+board-wide urgency order (see `GET /api/tasks` above), so this per-column sort
+is a stable re-sort on the same key that only splits the page into columns);
+row actions carry
 task-scoped accessible names, DOM order `Move back <title>` / `Advance
 <title>` / `Delete <title>` (`aria-label="Move back <title>"` / `"Advance
 <title>"` / `"Delete <title>"`), testids and visible text unchanged,
@@ -209,7 +215,9 @@ page that's empty for the active column.
 non-numeric, `< 1`, or beyond the last page → renders page 1 with HTTP 200,
 never a 422 — same lenient posture as `status`. The board fetches one page of
 `BOARD_PAGE_SIZE = 20` tasks (`GET /api/tasks?limit=20&offset=(page-1)*20`,
-plus `status` when filtered). A pager renders after the board, present only
+plus `status` when filtered) — that page is the board-wide urgency slice, so
+page 1 holds the most urgent tasks of the rendered set rather than the lowest
+ids. A pager renders after the board, present only
 when there is more than one page: `data-testid="pager"` (`<nav aria-label="Task
 pages">`, absent from the DOM — not merely hidden — on a single-page board),
 `data-testid="pager-prev"` (present only when `page > 1`, `aria-label="Previous
