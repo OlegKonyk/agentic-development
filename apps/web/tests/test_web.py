@@ -1430,9 +1430,7 @@ def test_move_back_csrf_mismatch_is_403(client: TestClient) -> None:
     login(client)
     route = respx.get(f"{API}/api/tasks/3").mock(return_value=httpx.Response(200, json=SEEDED[2]))
 
-    resp = client.post(
-        "/tasks/3/move-back", data={"csrf_token": "wrong"}, follow_redirects=False
-    )
+    resp = client.post("/tasks/3/move-back", data={"csrf_token": "wrong"}, follow_redirects=False)
 
     assert resp.status_code == 403
     assert not route.called
@@ -1463,9 +1461,7 @@ def test_move_back_api_401_clears_session_and_redirects(client: TestClient) -> N
     csrf = login(client)
     respx.get(f"{API}/api/tasks/1").mock(return_value=httpx.Response(401))
 
-    resp = client.post(
-        "/tasks/1/move-back", data={"csrf_token": csrf}, follow_redirects=False
-    )
+    resp = client.post("/tasks/1/move-back", data={"csrf_token": csrf}, follow_redirects=False)
 
     assert resp.status_code == 303
     assert resp.headers["location"] == "/login"
@@ -1476,9 +1472,7 @@ def test_move_back_other_users_task_404_is_noop(client: TestClient) -> None:
     csrf = login(client)
     respx.get(f"{API}/api/tasks/99").mock(return_value=httpx.Response(404))
 
-    resp = client.post(
-        "/tasks/99/move-back", data={"csrf_token": csrf}, follow_redirects=False
-    )
+    resp = client.post("/tasks/99/move-back", data={"csrf_token": csrf}, follow_redirects=False)
 
     assert resp.status_code == 303
     assert resp.headers["location"] == "/"
@@ -1489,9 +1483,7 @@ def test_move_back_api_down_still_redirects_to_board(client: TestClient) -> None
     csrf = login(client)
     respx.get(f"{API}/api/tasks/1").mock(side_effect=httpx.ConnectError("refused"))
 
-    resp = client.post(
-        "/tasks/1/move-back", data={"csrf_token": csrf}, follow_redirects=False
-    )
+    resp = client.post("/tasks/1/move-back", data={"csrf_token": csrf}, follow_redirects=False)
 
     assert resp.status_code == 303
     assert resp.headers["location"] == "/"

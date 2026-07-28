@@ -75,9 +75,7 @@ def test_advance_from_second_page_returns_to_second_page(
     expect(alice_page).to_have_url(re.compile(r"\?page=2$"))
 
 
-def test_move_back_returns_to_same_page_and_filter(
-    alice_api: ApiClient, alice_page: Page
-) -> None:
+def test_move_back_returns_to_same_page_and_filter(alice_api: ApiClient, alice_page: Page) -> None:
     _create_tasks(alice_api, 21, prefix="Filler")
     alice_api.create_task("Move back on page two")
     alice_page.goto("/?status=todo&page=2")
