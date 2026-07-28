@@ -244,6 +244,83 @@ async def test_patch_past_due_at_422(client: AsyncClient, alice_headers: dict) -
     assert resp.status_code == 422
 
 
+async def test_patch_explicit_null_due_at_clears_it(
+    client: AsyncClient, alice_headers: dict
+) -> None:
+    task = await create(client, alice_headers, due_at=future_iso())
+    resp = await client.patch(
+        f"/api/tasks/{task['id']}", json={"due_at": None}, headers=alice_headers
+    )
+    assert resp.status_code == 200
+    assert resp.json()["due_at"] is None
+    fetched = await client.get(f"/api/tasks/{task['id']}", headers=alice_headers)
+    assert fetched.json()["due_at"] is None
+
+
+async def test_patch_omitting_due_at_keeps_it(client: AsyncClient, alice_headers: dict) -> None:
+    due = future_iso()
+    task = await create(client, alice_headers, due_at=due)
+    resp = await client.patch(
+        f"/api/tasks/{task['id']}", json={"title": "renamed"}, headers=alice_headers
+    )
+    assert resp.status_code == 200
+    assert resp.json()["due_at"] == due
+
+
+async def test_patch_null_due_at_leaves_other_fields_and_reminder_status(
+    client: AsyncClient, alice_headers: dict
+) -> None:
+    task = await create(
+        client, alice_headers, title="keep title", description="keep desc", due_at=future_iso()
+    )
+    resp = await client.patch(
+        f"/api/tasks/{task['id']}", json={"due_at": None}, headers=alice_headers
+    )
+    body = resp.json()
+    assert body["title"] == "keep title"
+    assert body["description"] == "keep desc"
+    assert body["status"] == "todo"
+    assert body["reminder_status"] == "none"
+
+
+async def test_patch_title_only_does_not_revalidate_past_due_at(
+    client: AsyncClient, alice_headers: dict
+) -> None:
+    from app import db
+    from app.models import Task
+
+    async with db.session_scope() as session:
+        task = Task(
+            owner_id=1,
+            title="past due",
+            due_at=datetime(2020, 1, 1, tzinfo=UTC),
+        )
+        session.add(task)
+        await session.commit()
+        await session.refresh(task)
+        task_id = task.id
+
+    resp = await client.patch(
+        f"/api/tasks/{task_id}", json={"title": "still past due"}, headers=alice_headers
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["title"] == "still past due"
+    assert body["due_at"] == "2020-01-01T00:00:00Z"
+
+
+async def test_patch_null_due_at_other_users_task_is_404(
+    client: AsyncClient, alice_headers: dict, bob_headers: dict
+) -> None:
+    task = await create(client, alice_headers, due_at=future_iso())
+    resp = await client.patch(
+        f"/api/tasks/{task['id']}", json={"due_at": None}, headers=bob_headers
+    )
+    assert resp.status_code == 404
+    fetched = await client.get(f"/api/tasks/{task['id']}", headers=alice_headers)
+    assert fetched.json()["due_at"] is not None
+
+
 async def test_patch_invalid_status_422(client: AsyncClient, alice_headers: dict) -> None:
     task = await create(client, alice_headers)
     resp = await client.patch(
