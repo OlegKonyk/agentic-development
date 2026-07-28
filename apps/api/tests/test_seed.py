@@ -56,7 +56,9 @@ async def test_seeded_credentials_work(client: AsyncClient) -> None:
     token = await login(client, ALICE)
     resp = await client.get("/api/tasks", headers=bearer(token))
     assert resp.status_code == 200
-    assert [t["id"] for t in resp.json()["items"]] == [1, 2, 3]
+    # Urgency order: task 3 is alice's only dated seed task (due +2min), so it
+    # sorts first; 1 and 2 are undated and fall back to the ascending-id tie-break.
+    assert [t["id"] for t in resp.json()["items"]] == [3, 1, 2]
 
 
 async def test_sequences_realigned_after_seed(client: AsyncClient) -> None:
@@ -75,4 +77,5 @@ async def test_seed_resets_extra_tasks(client: AsyncClient) -> None:
     await seed()
 
     listed = (await client.get("/api/tasks", headers=bearer(token))).json()
-    assert [t["id"] for t in listed["items"]] == [1, 2, 3]
+    # Urgency order, same reasoning as test_seeded_credentials_work above.
+    assert [t["id"] for t in listed["items"]] == [3, 1, 2]
