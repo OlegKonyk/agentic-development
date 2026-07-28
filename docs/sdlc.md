@@ -261,6 +261,15 @@ claude -p "<skill invocation + context>" \
   and loaded via `--plugin-dir`, so the same mechanism works in bare and
   non-bare mode. Hooks are NOT used for CI enforcement (they don't run in bare
   mode; enforcement lives in YAML + permission flags).
+- Phase profiles are asserted, not remembered: `scripts/tests/test_agent_profiles.py`
+  fails the build if any phase re-introduces an arg-scoped `Bash(...)`
+  allowlist, if an analysis phase (product/design/retro) gains a shell, or if
+  a build phase (dev/qa) loses broad `Bash`. That defect cost a full run twice
+  before it was an invariant.
+- Work that bypasses the labeled phases (orchestrator/break-glass PRs) carries
+  an `<!-- sdlc:orchestrator-cost -->` comment recording its subagent tokens,
+  so the lane is visible to `scripts/lab_metrics.py` instead of being assumed
+  free.
 - Every run's full JSON payload (incl. `total_cost_usd`, `num_turns`,
   `session_id`) is uploaded as an artifact, and every phase surfaces its cost
   line (the phase workflows therefore need `issues: write` /

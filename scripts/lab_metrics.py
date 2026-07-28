@@ -22,6 +22,9 @@ PAGE_SIZE = 100
 RUN_FOOTER = re.compile(r"Agent run:\s*(\d+)\s+turns,\s*~\$(\d+(?:\.\d+)?)")
 # Step-summary style: "Agent phase `dev` ... 38 turns, ~$1.186 ..."
 PHASE_LINE = re.compile(r"Agent phase\b[^\n]*?(\d+)\s+turns,\s*~\$(\d+(?:\.\d+)?)")
+# Orchestrator/break-glass lane: no labeled phase runs, so no phase cost line
+# exists. Round 1 forecast this lane at "~$0"; it is not free (issue #37).
+ORCH_LINE = re.compile(r"Orchestrator lane\b[^\n]*?([\d,]+)\s+subagent tokens")
 
 LINKED_PR_QUERY = """\
 query($o: String!, $r: String!, $n: Int!) {
@@ -111,12 +114,14 @@ def linked_merged_pr(issue: int, notes: list[str]) -> int | None:
     return int(merged[-1]["number"])
 
 
-def parse_cost_comments(numbers: list[int]) -> tuple[float, int, int]:
-    """Sum (cost_usd, turns, comments_parsed) from agent-cost lines in comments."""
-    cost, turns, parsed = 0.0, 0, 0
+def parse_cost_comments(numbers: list[int]) -> tuple[float, int, int, int]:
+    """Sum (cost_usd, turns, comments_parsed, orchestrator_tokens) from comments."""
+    cost, turns, parsed, orch = 0.0, 0, 0, 0
     for number in numbers:
         for comment in gh_api_paged(f"repos/{REPO}/issues/{number}/comments"):
             body = comment.get("body") or ""
+            for tokens in ORCH_LINE.findall(body):
+                orch += int(tokens.replace(",", ""))
             matches = set(RUN_FOOTER.findall(body)) | set(PHASE_LINE.findall(body))
             if not matches:
                 continue
@@ -124,7 +129,7 @@ def parse_cost_comments(numbers: list[int]) -> tuple[float, int, int]:
             for t, c in matches:
                 turns += int(t)
                 cost += float(c)
-    return round(cost, 4), turns, parsed
+    return round(cost, 4), turns, parsed, orch
 
 
 def collect_issue(issue: int) -> dict[str, Any]:
@@ -140,6 +145,7 @@ def collect_issue(issue: int) -> dict[str, Any]:
         "agent_cost_usd": None,
         "cost_comments_parsed": None,
         "human_touch_events": None,
+        "orchestrator_tokens": None,
         "notes": notes,
     }
 
@@ -195,12 +201,15 @@ def collect_issue(issue: int) -> dict[str, Any]:
 
     try:
         targets = [issue] + ([pr] if pr is not None else [])
-        cost, turns, parsed = parse_cost_comments(targets)
+        cost, turns, parsed, orch = parse_cost_comments(targets)
         row["cost_comments_parsed"] = parsed
         if parsed:
             row["agent_cost_usd"], row["agent_turns"] = cost, turns
         else:
             notes.append("no agent-cost comments matched either known format")
+        if orch:
+            row["orchestrator_tokens"] = orch
+            notes.append(f"orchestrator lane: {orch:,} subagent tokens (not in cost_usd)")
     except (RuntimeError, json.JSONDecodeError) as exc:
         notes.append(f"cost-comment parsing failed: {exc}")
 
