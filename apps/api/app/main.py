@@ -10,7 +10,7 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic.json_schema import SkipJsonSchema
-from sqlalchemy import delete, func
+from sqlalchemy import delete, func, nulls_last
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -49,6 +49,10 @@ MAX_OFFSET = 2**31 - 1
 BAD_BODY = {400: {"description": "Malformed request body"}}
 NOT_FOUND = {404: {"description": "Task not found"}}
 
+# Board-wide urgency order. `id` is not decoration: it makes the order total, so
+# OFFSET paging can neither duplicate nor drop a row across pages.
+URGENCY_ORDER = (nulls_last(col(Task.due_at).asc()), col(Task.id).asc())
+
 tasks_router = APIRouter(
     prefix="/api/tasks",
     tags=["tasks"],
@@ -78,7 +82,7 @@ async def list_tasks(
     if status is not None:
         filters.append(Task.status == status)
     total = (await session.exec(select(func.count()).select_from(Task).where(*filters))).one()
-    statement = select(Task).where(*filters).order_by(col(Task.id)).limit(limit).offset(offset)
+    statement = select(Task).where(*filters).order_by(*URGENCY_ORDER).limit(limit).offset(offset)
     tasks = (await session.exec(statement)).all()
     # TaskPage is constructed directly (not returned via response_model
     # conversion), so TaskRead needs an explicit from_attributes read here.
