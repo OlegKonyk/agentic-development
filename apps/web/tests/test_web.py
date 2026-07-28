@@ -8,6 +8,7 @@ import json
 import re
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 import httpx
 import pytest
@@ -16,6 +17,7 @@ from fastapi.testclient import TestClient
 from web.main import (
     DEGRADED_REMINDERS_MESSAGE,
     PREV_STATUS,
+    UTC_ZONE,
     board_url,
     create_app,
     decorate_tasks,
@@ -26,6 +28,7 @@ from web.main import (
     parse_due_at,
     parse_page,
     reminder_health_url,
+    resolve_zone,
     safe_next,
     title_rejected,
     to_rfc3339_z,
@@ -143,9 +146,43 @@ def test_safe_next_allows_relative_paths_only() -> None:
     assert safe_next("") == "/"
 
 
-def test_to_rfc3339_z_converts_datetime_local() -> None:
-    assert to_rfc3339_z("2026-03-01T12:30") == "2026-03-01T12:30:00Z"
-    assert to_rfc3339_z("2026-03-01T12:30:15+02:00") == "2026-03-01T10:30:15Z"
+def test_to_rfc3339_z_interprets_local_value_in_viewer_zone() -> None:
+    berlin = ZoneInfo("Europe/Berlin")
+    assert to_rfc3339_z("2026-08-25T17:00", berlin) == "2026-08-25T15:00:00Z"
+    assert to_rfc3339_z("2026-08-25T17:00", UTC_ZONE) == "2026-08-25T17:00:00Z"
+    # an already-offset value keeps its own offset regardless of `zone`
+    assert to_rfc3339_z("2026-03-01T12:30:15+02:00", berlin) == "2026-03-01T10:30:15Z"
+
+
+def test_to_rfc3339_z_uses_offset_in_force_on_the_entered_date() -> None:
+    berlin = ZoneInfo("Europe/Berlin")
+    # same wall-clock 10:00, summer (CEST, UTC+2) vs winter (CET, UTC+1)
+    assert to_rfc3339_z("2026-07-10T10:00", berlin) == "2026-07-10T08:00:00Z"
+    assert to_rfc3339_z("2026-01-10T10:00", berlin) == "2026-01-10T09:00:00Z"
+
+
+def test_resolve_zone_accepts_iana_key() -> None:
+    assert resolve_zone("Europe/Berlin").key == "Europe/Berlin"
+    assert resolve_zone("America/Los_Angeles").key == "America/Los_Angeles"
+    assert resolve_zone("UTC").key == "UTC"
+    assert resolve_zone("Europe/Berlin ").key == "Europe/Berlin"  # surrounding whitespace stripped
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        None,
+        "",
+        "   ",
+        "Not/AZone",
+        "../../etc/passwd",
+        "A" * 200,
+    ],
+)
+def test_resolve_zone_falls_back_to_utc_for_absent_blank_unknown_and_traversal_values(
+    raw: str | None,
+) -> None:
+    assert resolve_zone(raw).key == "UTC"
 
 
 def test_title_rejected_helper() -> None:
@@ -157,11 +194,19 @@ def test_title_rejected_helper() -> None:
     assert title_rejected([{}]) is False
 
 
-def test_format_due_at_renders_human_label() -> None:
-    assert format_due_at(datetime(2026, 7, 25, 12, 34, 56, tzinfo=UTC)) == "25 Jul 2026, 12:34 UTC"
-    assert format_due_at(datetime(2026, 7, 5, 9, 0, tzinfo=UTC)) == "05 Jul 2026, 09:00 UTC"
+def test_format_due_at_renders_zone_named_label() -> None:
+    instant = datetime(2026, 8, 25, 15, 0, tzinfo=UTC)
+    assert format_due_at(instant, ZoneInfo("Europe/Berlin")) == "25 Aug 2026, 17:00 (Europe/Berlin)"
+    assert format_due_at(instant, UTC_ZONE) == "25 Aug 2026, 15:00 (UTC)"
+    assert (
+        format_due_at(datetime(2026, 7, 5, 9, 0, tzinfo=UTC), UTC_ZONE)
+        == "05 Jul 2026, 09:00 (UTC)"
+    )
     plus_two = timezone(timedelta(hours=2))
-    assert format_due_at(datetime(2026, 7, 25, 14, 34, tzinfo=plus_two)) == "25 Jul 2026, 12:34 UTC"
+    assert (
+        format_due_at(datetime(2026, 7, 25, 14, 34, tzinfo=plus_two), UTC_ZONE)
+        == "25 Jul 2026, 12:34 (UTC)"
+    )
 
 
 def test_parse_due_at_accepts_z_naive_and_rejects_garbage() -> None:
@@ -181,7 +226,7 @@ def test_decorate_tasks_orders_by_due_then_id() -> None:
         {"id": 4, "due_at": None},
     ]
 
-    ordered = decorate_tasks(tasks, now)
+    ordered = decorate_tasks(tasks, now, UTC_ZONE)
 
     assert [t["id"] for t in ordered] == [3, 1, 2, 4]
 
@@ -273,9 +318,28 @@ def test_decorate_tasks_marks_overdue_only_for_past_due() -> None:
         {"id": 4, "due_at": "2026-07-25T12:00:00Z"},
     ]
 
-    ordered = {t["id"]: t["overdue"] for t in decorate_tasks(tasks, now)}
+    ordered = {t["id"]: t["overdue"] for t in decorate_tasks(tasks, now, UTC_ZONE)}
 
     assert ordered == {1: True, 2: False, 3: False, 4: False}
+
+
+def test_decorate_tasks_ordering_and_overdue_are_zone_independent() -> None:
+    berlin = ZoneInfo("Europe/Berlin")
+    now = datetime(2026, 7, 25, 12, 0, 0, tzinfo=UTC)
+    tasks = [
+        {"id": 1, "due_at": "2026-07-25T11:59:59Z"},
+        {"id": 2, "due_at": "2026-07-25T12:00:01Z"},
+        {"id": 3, "due_at": None},
+        {"id": 4, "due_at": "2026-07-25T12:00:00Z"},
+    ]
+
+    utc_result = decorate_tasks([dict(t) for t in tasks], now, UTC_ZONE)
+    berlin_result = decorate_tasks([dict(t) for t in tasks], now, berlin)
+
+    assert [t["id"] for t in utc_result] == [t["id"] for t in berlin_result]
+    assert {t["id"]: t["overdue"] for t in utc_result} == {
+        t["id"]: t["overdue"] for t in berlin_result
+    }
 
 
 # --- auth gating -----------------------------------------------------------
@@ -310,6 +374,15 @@ def test_login_form_renders(client: TestClient) -> None:
         assert f'data-testid="{testid}"' in resp.text
     assert 'data-testid="login-error"' not in resp.text
     assert 'name="csrf_token"' in resp.text
+
+
+def test_base_template_emits_tz_sync_script_and_server_zone(client: TestClient) -> None:
+    resp = client.get("/login")
+
+    assert resp.status_code == 200
+    assert 'data-tz="UTC"' in resp.text
+    assert 'data-tz-sync="1"' in resp.text
+    assert "Intl.DateTimeFormat().resolvedOptions().timeZone" in resp.text
 
 
 @respx.mock
@@ -472,7 +545,7 @@ def test_index_due_at_and_reminder_badge_render_only_when_set(client: TestClient
     body = client.get("/").text
 
     assert body.count('data-testid="due-at"') == 1
-    assert format_due_at(parse_due_at(SEEDED[1]["due_at"])) in body
+    assert format_due_at(parse_due_at(SEEDED[1]["due_at"]), UTC_ZONE) in body
     assert body.count('data-testid="reminder-badge"') == 1
     assert 'data-testid="reminder-badge">pending<' in body
 
@@ -488,8 +561,40 @@ def test_index_due_at_renders_human_label_not_raw_iso(client: TestClient) -> Non
 
     body = client.get("/").text
 
-    assert "25 Jul 2026, 12:34 UTC" in body
+    assert "25 Jul 2026, 12:34 (UTC)" in body
     assert due_at not in body
+
+
+@respx.mock
+def test_index_due_label_uses_cookie_zone(client: TestClient) -> None:
+    login(client)
+    client.cookies.set("tz", "Europe/Berlin")
+    respx.get(f"{API}/api/auth/me").mock(return_value=httpx.Response(200, json=ME))
+    task = {**SEEDED[0], "id": 10, "due_at": "2026-08-25T15:00:00Z"}
+    respx.get(f"{API}/api/tasks").mock(return_value=httpx.Response(200, json=page_body([task])))
+    mock_health()
+
+    body = client.get("/").text
+
+    assert "25 Aug 2026, 17:00 (Europe/Berlin)" in body
+    assert 'data-tz="Europe/Berlin"' in body
+
+
+@respx.mock
+def test_index_with_malformed_tz_cookie_renders_utc_label_and_200(client: TestClient) -> None:
+    login(client)
+    client.cookies.set("tz", "../../etc/passwd")
+    respx.get(f"{API}/api/auth/me").mock(return_value=httpx.Response(200, json=ME))
+    task = {**SEEDED[0], "id": 10, "due_at": "2026-07-25T12:34:56Z"}
+    respx.get(f"{API}/api/tasks").mock(return_value=httpx.Response(200, json=page_body([task])))
+    mock_health()
+
+    resp = client.get("/")
+
+    assert resp.status_code == 200
+    assert "25 Jul 2026, 12:34 (UTC)" in resp.text
+    assert "../../etc/passwd" not in resp.text
+    assert 'data-tz="UTC"' in resp.text
 
 
 @respx.mock
@@ -1354,6 +1459,29 @@ def test_new_form_renders(client: TestClient) -> None:
 
 
 @respx.mock
+def test_new_form_zone_hint_uses_cookie_zone(client: TestClient) -> None:
+    login(client)
+    client.cookies.set("tz", "Europe/Berlin")
+
+    resp = client.get("/new")
+
+    assert resp.status_code == 200
+    assert 'data-testid="due-at-zone"' in resp.text
+    assert "Times are in Europe/Berlin." in resp.text
+    assert 'aria-describedby="due-at-zone"' in resp.text
+
+
+@respx.mock
+def test_new_form_zone_hint_defaults_to_utc_without_cookie(client: TestClient) -> None:
+    login(client)
+
+    resp = client.get("/new")
+
+    assert resp.status_code == 200
+    assert "Times are in UTC." in resp.text
+
+
+@respx.mock
 def test_new_task_posts_to_api_and_redirects(client: TestClient) -> None:
     csrf = login(client)
     created = {**SEEDED[0], "id": 4, "title": "New one", "description": "details"}
@@ -1393,6 +1521,52 @@ def test_new_task_due_at_converted_to_rfc3339_z(client: TestClient) -> None:
         "description": "",
         "due_at": "2026-03-01T12:30:00Z",
     }
+
+
+@respx.mock
+def test_create_task_converts_due_at_using_cookie_zone(client: TestClient) -> None:
+    csrf = login(client)
+    client.cookies.set("tz", "Europe/Berlin")
+    created = {**SEEDED[1], "id": 5, "title": "Due one"}
+    route = respx.post(f"{API}/api/tasks").mock(return_value=httpx.Response(201, json=created))
+
+    resp = client.post(
+        "/new",
+        data={"title": "Due one", "due_at": "2026-08-25T17:00", "csrf_token": csrf},
+        follow_redirects=False,
+    )
+
+    assert resp.status_code == 303
+    assert json.loads(route.calls.last.request.content)["due_at"] == "2026-08-25T15:00:00Z"
+
+
+@respx.mock
+def test_create_task_error_rerender_preserves_due_value_and_disables_tz_sync(
+    client: TestClient,
+) -> None:
+    csrf = login(client)
+    client.cookies.set("tz", "Europe/Berlin")
+    respx.post(f"{API}/api/tasks").mock(
+        return_value=httpx.Response(
+            422,
+            json={"detail": [{"loc": ["body", "title"], "type": "value_error"}]},
+        )
+    )
+
+    resp = client.post(
+        "/new",
+        data={
+            "title": " ",
+            "due_at": "2026-08-25T17:00",
+            "csrf_token": csrf,
+        },
+        follow_redirects=False,
+    )
+
+    assert resp.status_code == 200
+    assert 'data-tz="Europe/Berlin"' in resp.text
+    assert 'data-tz-sync="1"' not in resp.text
+    assert "2026-08-25T17:00" in resp.text
 
 
 @respx.mock

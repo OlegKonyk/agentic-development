@@ -2,6 +2,7 @@
 
 import math
 import os
+import re
 import secrets
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
@@ -9,6 +10,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
 from urllib.parse import quote
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
 from fastapi import FastAPI, Form, HTTPException, Request
@@ -116,11 +118,28 @@ def safe_next(target: str | None) -> str:
     return "/"
 
 
-def to_rfc3339_z(value: str) -> str:
-    """Convert a datetime-local form value to an RFC3339 UTC ``Z`` timestamp."""
+TZ_COOKIE = "tz"
+TZ_COOKIE_MAX_AGE = 31_536_000
+UTC_ZONE = ZoneInfo("UTC")
+# IANA keys are letters, digits, and _ + - / only; the bound blocks junk cookies
+# before zoneinfo ever touches the filesystem.
+ZONE_KEY_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_+/-]{0,63}$")
+
+
+def resolve_zone(raw: str | None) -> ZoneInfo:
+    """Viewer's zone from the `tz` cookie; UTC when absent, malformed, or unknown."""
+    key = (raw or "").strip()
+    if ZONE_KEY_RE.fullmatch(key) and ".." not in key:
+        with suppress(ZoneInfoNotFoundError, ValueError):
+            return ZoneInfo(key)
+    return UTC_ZONE
+
+
+def to_rfc3339_z(value: str, zone: ZoneInfo) -> str:
+    """Convert a datetime-local form value, interpreted in `zone`, to an RFC3339 UTC timestamp."""
     dt = datetime.fromisoformat(value)
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=UTC)
+        dt = dt.replace(tzinfo=zone)
     return dt.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
@@ -153,18 +172,18 @@ def parse_due_at(value: str | None) -> datetime | None:
     return None
 
 
-def format_due_at(value: datetime) -> str:
-    """Render an aware datetime as a human-readable UTC label, e.g. '25 Jul 2026, 12:34 UTC'."""
-    at = value.astimezone(UTC)
-    return f"{at.day:02d} {MONTHS[at.month - 1]} {at.year}, {at:%H:%M} UTC"
+def format_due_at(value: datetime, zone: ZoneInfo) -> str:
+    """Render an aware datetime in `zone`, e.g. '25 Jul 2026, 12:34 (Europe/Berlin)'."""
+    at = value.astimezone(zone)
+    return f"{at.day:02d} {MONTHS[at.month - 1]} {at.year}, {at:%H:%M} ({zone.key})"
 
 
-def decorate_tasks(tasks: list[dict], now: datetime) -> list[dict]:
+def decorate_tasks(tasks: list[dict], now: datetime, zone: ZoneInfo) -> list[dict]:
     """Add `due_label`/`overdue` presentation keys and sort by urgency in place."""
     decorated = []
     for task in tasks:
         due = parse_due_at(task.get("due_at"))
-        task["due_label"] = format_due_at(due) if due else None
+        task["due_label"] = format_due_at(due, zone) if due else None
         task["overdue"] = due is not None and due < now
         decorated.append((due or UNDATED, task.get("id") or 0, task))
     decorated.sort(key=lambda item: item[:2])
@@ -268,10 +287,17 @@ def create_app() -> FastAPI:
 
     @app.get("/login", response_class=HTMLResponse)
     async def login_form(request: Request, next: str = "/") -> HTMLResponse:
+        zone = resolve_zone(request.cookies.get(TZ_COOKIE))
         return templates.TemplateResponse(
             request,
             "login.html",
-            {"csrf": ensure_csrf(request), "next": safe_next(next), "error": False},
+            {
+                "csrf": ensure_csrf(request),
+                "next": safe_next(next),
+                "error": False,
+                "tz_name": zone.key,
+                "tz_sync": True,
+            },
         )
 
     @app.post("/login", response_model=None)
@@ -292,10 +318,17 @@ def create_app() -> FastAPI:
         if resp is not None and resp.status_code == 200:
             request.session["token"] = resp.json()["token"]
             return RedirectResponse(url=safe_next(next), status_code=303)
+        zone = resolve_zone(request.cookies.get(TZ_COOKIE))
         return templates.TemplateResponse(
             request,
             "login.html",
-            {"csrf": ensure_csrf(request), "next": safe_next(next), "error": True},
+            {
+                "csrf": ensure_csrf(request),
+                "next": safe_next(next),
+                "error": True,
+                "tz_name": zone.key,
+                "tz_sync": False,
+            },
         )
 
     @app.post("/logout")
@@ -313,6 +346,7 @@ def create_app() -> FastAPI:
         request: Request, status: str | None = None, page: str | None = None
     ) -> HTMLResponse:
         token = require_token(request)
+        zone = resolve_zone(request.cookies.get(TZ_COOKIE))
         active = normalize_status(status)
         visible = (active,) if active else STATUS_COLUMNS
         columns: dict[str, list[dict]] = {status: [] for status in STATUS_COLUMNS}
@@ -368,7 +402,7 @@ def create_app() -> FastAPI:
         degraded = False if api_error else await reminders_degraded(api(request), token, health_url)
         empty = empty_state(api_error, active, view_total)
         now = datetime.now(UTC)
-        columns = {status: decorate_tasks(tasks, now) for status, tasks in columns.items()}
+        columns = {status: decorate_tasks(tasks, now, zone) for status, tasks in columns.items()}
         return templates.TemplateResponse(
             request,
             "index.html",
@@ -390,16 +424,25 @@ def create_app() -> FastAPI:
                 "has_next": current < page_count,
                 "prev_url": board_url(active, current - 1),
                 "next_url": board_url(active, current + 1),
+                "tz_name": zone.key,
+                "tz_sync": True,
             },
         )
 
     @app.get("/new", response_class=HTMLResponse)
     async def new_form(request: Request) -> HTMLResponse:
         require_token(request)
+        zone = resolve_zone(request.cookies.get(TZ_COOKIE))
         return templates.TemplateResponse(
             request,
             "new.html",
-            {"api_error": False, "authed": True, "csrf": ensure_csrf(request)},
+            {
+                "api_error": False,
+                "authed": True,
+                "csrf": ensure_csrf(request),
+                "tz_name": zone.key,
+                "tz_sync": True,
+            },
         )
 
     @app.post("/new", response_model=None)
@@ -412,12 +455,13 @@ def create_app() -> FastAPI:
     ) -> HTMLResponse | RedirectResponse:
         check_csrf(request, csrf_token)
         token = require_token(request)
+        zone = resolve_zone(request.cookies.get(TZ_COOKIE))
         payload: dict[str, str] = {"title": title, "description": description}
         api_error = False
         error_message = API_UNAVAILABLE_MESSAGE
         try:
             if due_at.strip():
-                payload["due_at"] = to_rfc3339_z(due_at.strip())
+                payload["due_at"] = to_rfc3339_z(due_at.strip(), zone)
             resp = await api(request).post("/api/tasks", json=payload, headers=bearer(token))
             if resp.status_code == 401:
                 raise SessionExpired
@@ -447,6 +491,8 @@ def create_app() -> FastAPI:
                     "title": title,
                     "description": description,
                     "due_at": due_at,
+                    "tz_name": zone.key,
+                    "tz_sync": False,
                 },
             )
         return RedirectResponse(url="/", status_code=303)

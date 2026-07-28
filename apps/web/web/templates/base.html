@@ -1,9 +1,24 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-tz="{{ tz_name | default('UTC') }}"{% if tz_sync %} data-tz-sync="1"{% endif %}>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Taskboard{% endblock %}</title>
+  <script>
+    (function () {
+      try {
+        var el = document.documentElement;
+        var zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        if (!zone || zone === el.getAttribute("data-tz")) return;
+        document.cookie = "tz=" + zone + ";path=/;max-age=31536000;samesite=lax";
+        if (document.cookie.indexOf("tz=" + zone) === -1) return;   // cookies blocked -> stay on UTC
+        if (el.getAttribute("data-tz-sync") !== "1") return;        // POST re-render: never reload
+        if (sessionStorage.getItem("tz-synced") === zone) return;   // at most one reload per zone
+        sessionStorage.setItem("tz-synced", zone);
+        location.replace(location.href);
+      } catch (e) { /* no Intl / no storage -> server-side UTC fallback stands */ }
+    })();
+  </script>
   <style>
     * { box-sizing: border-box; }
     body { font-family: system-ui, sans-serif; margin: 0; background: #f4f5f7; color: #172b4d; }
@@ -56,6 +71,8 @@
     form.stacked label { display: block; margin: 0.75rem 0 0.25rem; font-weight: 600; }
     form.stacked input, form.stacked textarea { width: 100%; padding: 0.4rem;
       border: 1px solid #dfe1e6; border-radius: 3px; font: inherit; }
+    form.stacked .field-hint { font-size: 0.8rem; color: #5e6c84; margin: 0.25rem 0 0;
+      font-weight: 400; }
   </style>
 </head>
 <body>
