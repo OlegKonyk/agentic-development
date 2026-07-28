@@ -80,6 +80,7 @@ number in the system is reviewer minutes. Definitions:
 | Rework rate | `qa-ready` events per PR beyond the first | DORA's 5th key (2025); loop guard already counts it |
 | Unplanned human interventions | `needs-human` parks per ticket, by cause | planned gates are the design; unplanned parks are the signal |
 | Cost per merged change | Σ agent $ + turns across phases / merged PR | unit economics; run_agent.sh logs it |
+| Orchestrator-lane cost | subagent tokens on break-glass PRs, reported separately | the lane Round 1 forecast at "~$0"; measured, it is not free |
 | Human review minutes per agent PR | reviewer-reported, per PR | review burden is the documented emerging bottleneck |
 | Gate false-pass rate | escaped defects originating in gate-passed merges / gate-passed merges | the gate's integrity; 1/5 at baseline (the NUL-in-email 500 shipped in #3's merge, surfaced in #14's QA) |
 | Churn canary | % of agent-written code revised within 2 weeks | maintainability warning ([GitClear](https://www.gitclear.com/coding_on_copilot_data_shows_ais_downward_pressure_on_code_quality)) |
