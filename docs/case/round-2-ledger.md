@@ -15,7 +15,10 @@ merges, who raises a cap), and whether seat boundaries hold when occupants disag
 **Comparison:** the frozen Round 0 baseline and Round 1's measured results. Round 0's
 cost column is a documented undercount — only QA phases posted cost comments then
 (`round-0-baseline.md`) — so **cost cannot be trended against it**; lead time, rework
-and parks can. There is **no control lane** — no manual-only tickets, no randomization,
+and parks can. **Lead time is reported but not compared**: the owner will continue
+other heavy use of the shared subscription token during the window (Pre-flight), so
+wall-clock is contaminated by contention with work outside the round. Cost and turns
+are per-run figures and stay comparable. There is **no control lane** — no manual-only tickets, no randomization,
 no A/B — and the reason is seat load and window length: it means running these tickets
 twice, which six part-time seats in 26 days cannot staff. Plainly: this cannot prove
 the team is faster, cheaper or better than the same team without agents, and deltas
@@ -27,9 +30,17 @@ ledger has equal prominence; a round where most tickets fail is a publishable re
 
 ## Window
 
-21–30 days. Proposed **2026-08-03 → 2026-08-28** (26 days), owner-confirmed at
-pre-flight. The window closes on the date, not the ledger — unfinished tickets are
-reported so.
+Owner-confirmed: **2026-07-28 → 2026-08-28** (31 days). That is one day past the
+charter's stated 21–30 band; recorded as a deliberate choice, not an oversight, and
+noted in the brief so the comparison against Round 1's single-day cadence is read
+with the right denominator. The window closes on the date, not the ledger —
+unfinished tickets are reported so.
+
+**The opening date is contingent.** No teammate holds repo access yet (section
+Pre-flight, part A). The round opens on the first `stage:spec` *after* all five
+invites are accepted; if that lands later than 2026-07-28 the window shortens
+rather than sliding, unless the owner re-confirms a new close date here before it
+opens.
 
 ## Ticket ledger (predefined)
 
@@ -106,14 +117,18 @@ Totals (forecast): **$51–100** — floor $51 if R2-8 is killed at the gate, $5
 
 ## Seat assignment
 
-| Seat | Owns this round | Playbook |
-|---|---|---|
-| Product manager | `stage:spec` entry gate on product tickets, `open_questions` answers, final-AC review at design, kill/re-spec calls. Primary: R2-3, R2-4, R2-7, R2-8 | `product-manager.md` |
-| Dev manager | Merge authority **and** bypass authority on ticket PRs; triage of environmental, loop-guard and stale-merge-ref parks; cap/budget decisions. Primary: R2-5 | `dev-manager.md` |
-| Developer A | Diff + `dev-report.json` review, rework supervision, reproduces a `needs-human` finding before acting; merges in `apps/` but **never their own agent's PR**. Primary: R2-1, R2-6 | `developer.md` |
-| Developer B | Same seat, deliberately starting small; the cross-review that lets DEV-A's PRs merge, and vice versa. Primary: R2-2, R2-7 | `developer.md` |
-| Infra engineer | Workflows, guards, identities, stack/gateway health; unparks infra causes; lands cap changes as orchestrator PRs; break-glass only on those privileged-path PRs, with the DM's recorded authorization | `infra-engineer.md` |
-| QA engineer (lab owner) | Charter and tier-1 suites, evidence audits, gate rules, `stage:spec` on QA tooling; triage of verdict-layer parks (`blocked`, invalid output, disputed evidence). Primary: R2-9, plus the repro and measurement on R2-4 | `qa-engineer.md` |
+_Names below are **placeholders** pending the owner's real assignment — they exist
+so round-open comments can address a person rather than a role. Swap them before the
+window opens; nothing else in this document depends on them._
+
+| Seat | Person (placeholder) | Owns this round | Playbook |
+|---|---|---|---|
+| Product manager | Priya Raman | `stage:spec` entry gate on product tickets, `open_questions` answers, final-AC review at design, kill/re-spec calls. Primary: R2-3, R2-4, R2-7, R2-8 | `product-manager.md` |
+| Dev manager | Marcus Bell | Merge authority **and** bypass authority on ticket PRs; triage of environmental, loop-guard and stale-merge-ref parks; cap/budget decisions. Primary: R2-5 | `dev-manager.md` |
+| Developer A | Jonas Wieck | Diff + `dev-report.json` review, rework supervision, reproduces a `needs-human` finding before acting; merges in `apps/` but **never their own agent's PR**. Primary: R2-1, R2-6 | `developer.md` |
+| Developer B | Amara Osei | Same seat, deliberately starting small; the cross-review that lets DEV-A's PRs merge, and vice versa. Primary: R2-2, R2-7 | `developer.md` |
+| Infra engineer | Tomas Lindqvist | Workflows, guards, identities, stack/gateway health; unparks infra causes; lands cap changes as orchestrator PRs; break-glass only on those privileged-path PRs, with the DM's recorded authorization | `infra-engineer.md` |
+| QA engineer (lab owner) | the repo owner | Charter and tier-1 suites, evidence audits, gate rules, `stage:spec` on QA tooling; triage of verdict-layer parks (`blocked`, invalid output, disputed evidence). Primary: R2-9, plus the repro and measurement on R2-4 | `qa-engineer.md` |
 
 Three non-delegable lists in `docs/playbooks/` overlap; the table rules on them now, not
 mid-ticket: `needs-human` triage is claimed by QA, DM and developer (split by cause);
@@ -139,8 +154,11 @@ included. An override forced by conflict is a **finding**: who overrode whom, wh
    larger-skewed tickets give a ~$65 base, and its one environment defect added $5.6 —
    26% of round spend — on a single operator, so six people and two contract-touching
    tickets take a wider margin. **Plan on $65–85**: inside the bottom-up range, pricing
-   in one doubled ticket. **Hard ceiling $110** = bottom-up top plus one over-run past
-   it. Per ticket: stop-and-review at $15 (DM decides continue / re-spec / kill), hard
+   in one doubled ticket. **Hard ceiling $150**, owner-chosen: the bottom-up top
+   ($100) plus room for two over-runs rather than one, so a second environment
+   surprise is absorbed without a mid-round decision taken under pressure. Unused
+   headroom costs nothing; a ceiling revised mid-round would cost the frozen-ledger
+   rule. Per ticket: stop-and-review at $15 (DM decides continue / re-spec / kill), hard
    stop $25; per-phase caps as Round 1 left them (QA $8) absent a DM-approved change.
 5. **No mid-flight steering** — comments do not redirect a running pipeline; strip
    labels back to `stage:idea` and re-spec. Parks, bypasses and overrides get a one-line
@@ -154,16 +172,26 @@ No teammate and no agent can do these; all are checked off here before the windo
 - [ ] **Permission per seat:** `write` for all five (`triage` can label but not merge;
   DM/DEV-A/DEV-B need merge). No `admin` beyond the owner and INFRA, who administers
   the ruleset and the App identity.
-- [ ] **Break-glass:** DM added as a *named bypass actor* on the `main` ruleset, not
-  given admin. Each bypass merge carries a one-line justification; bypass count is a
-  reported metric.
+- [ ] **Break-glass:** on a user-owned repository, ruleset bypass is granted to
+  **roles and GitHub Apps, never to individuals** — an earlier draft of this ledger
+  called for a "named bypass actor", which GitHub does not support here. Owner's
+  decision: give the DM the `maintain` role and add **that role** to ruleset
+  `19701736`'s bypass list. The grant therefore follows the role, so anyone later
+  given `maintain` inherits it — acceptable at six people, revisit beyond that. Each
+  bypass merge carries a one-line justification; bypass count is a reported metric.
 - [ ] **Spend acknowledgment in writing from each seat:** repo `write` is the ability
   to spend the owner's Claude subscription by applying a label. Nobody else can read
   `CLAUDE_CODE_OAUTH_TOKEN` or the App key, but every `stage:spec` bills the owner.
-- [ ] **Subscription-token contention acknowledged:** one OAuth token serves every
-  phase. The owner confirms no other heavy Claude Code use on it during the window, or
-  declares that as noise in the brief — the operational reason for the serial rule.
-- [ ] **Window dates confirmed** and written into the Window section above.
+- [x] **Subscription-token contention acknowledged — and declared as noise.** One
+  OAuth token serves every phase, and the owner will continue other heavy Claude Code
+  use on it during the window. Consequence, stated now rather than discovered at
+  close: wall-clock lead times are contaminated by contention with work outside the
+  round, so **lead time is reported but not compared against Round 1**; cost and turns
+  are unaffected (they are per-run figures) and remain comparable. This is also why
+  the serial-execution rule is not optional this round.
+- [x] **Window dates confirmed** (2026-07-28 → 2026-08-28) and written into the
+  Window section above, with the contingency on access noted there.
+- [x] **Spend ceiling confirmed** at $150 (Operating rules, rule 4).
 - [ ] **Deploy path stays owner-only** — deploy secrets and any Cloudflare token out of
   agent jobs and out of teammate reach.
 - [ ] **Each seat has read its playbook and `docs/sdlc.md`**, confirmed by name in the
