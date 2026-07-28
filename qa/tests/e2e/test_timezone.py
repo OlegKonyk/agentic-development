@@ -230,6 +230,44 @@ def test_malformed_tz_cookie_falls_back_to_utc(
         context.close()
 
 
+def test_ordering_and_page_membership_are_zone_independent(
+    alice_api: ApiClient, browser: Browser, base_url: str, alice_storage_state: str
+) -> None:
+    """AC-11: ordering compares aware UTC instants, so the viewer's zone can
+    only change due-at labels, never which tasks land on page 1."""
+    for i in range(25):
+        alice_api.create_task(f"Zone task {i}", due_at=rfc3339_in(86400 * (i + 1)))
+
+    def load(tz_cookie: str | None, browser_timezone: str) -> tuple[list[str], list[str]]:
+        # Pin the browser's own zone to `browser_timezone` so the base template's
+        # tz-sync script (which compares Intl's zone against the server-rendered
+        # one) never disagrees and overwrites a manually-set cookie mid-test.
+        context = browser.new_context(
+            base_url=base_url, storage_state=alice_storage_state, timezone_id=browser_timezone
+        )
+        try:
+            if tz_cookie is not None:
+                context.add_cookies([{"name": "tz", "value": tz_cookie, "url": base_url}])
+            page = context.new_page()
+            page.goto("/")
+            expect(page.locator("html")).to_have_attribute("data-tz", browser_timezone)
+            titles = page.get_by_test_id("task-title").all_inner_texts()
+            labels = page.get_by_test_id("due-at").all_inner_texts()
+            return titles, labels
+        finally:
+            context.close()
+
+    berlin_titles, berlin_labels = load(None, "Europe/Berlin")
+    unset_titles, unset_labels = load(None, "UTC")
+    invalid_titles, invalid_labels = load("../../etc/passwd", "UTC")
+
+    assert berlin_titles == unset_titles == invalid_titles
+    # unset and invalid both fall back to UTC, so their labels agree with each
+    # other but differ from Berlin's zone-shifted labels.
+    assert unset_labels == invalid_labels
+    assert berlin_labels != unset_labels
+
+
 def test_zone_sync_script_logs_no_console_errors_and_keeps_landmarks(
     browser: Browser, base_url: str, alice_storage_state: str
 ) -> None:

@@ -409,3 +409,127 @@ async def test_list_pagination_is_owner_scoped(
     body = resp.json()
     assert [t["id"] for t in body["items"]] == [t["id"] for t in alice_tasks]
     assert body["total"] == 3
+
+
+# --- urgency ordering (issue #52) -------------------------------------------
+
+
+async def test_list_orders_by_due_at_then_undated(client: AsyncClient, alice_headers: dict) -> None:
+    # Created out of urgency order, so a passing test can't be an id-order accident.
+    soon = await create(client, alice_headers, title="soon", due_at=future_iso(30))
+    later = await create(client, alice_headers, title="later", due_at=future_iso(60))
+    undated = await create(client, alice_headers, title="undated")
+    sooner = await create(client, alice_headers, title="sooner", due_at=future_iso(5))
+
+    resp = await client.get("/api/tasks", headers=alice_headers)
+    body = resp.json()
+    assert [t["id"] for t in body["items"]] == [
+        sooner["id"],
+        soon["id"],
+        later["id"],
+        undated["id"],
+    ]
+
+
+async def test_list_ties_break_by_ascending_id(client: AsyncClient, alice_headers: dict) -> None:
+    shared_due = future_iso(30)
+    tied_a = await create(client, alice_headers, title="tied a", due_at=shared_due)
+    tied_b = await create(client, alice_headers, title="tied b", due_at=shared_due)
+    tied_c = await create(client, alice_headers, title="tied c", due_at=shared_due)
+    undated_a = await create(client, alice_headers, title="undated a")
+    undated_b = await create(client, alice_headers, title="undated b")
+
+    resp = await client.get("/api/tasks", headers=alice_headers)
+    body = resp.json()
+    assert [t["id"] for t in body["items"]] == [
+        tied_a["id"],
+        tied_b["id"],
+        tied_c["id"],
+        undated_a["id"],
+        undated_b["id"],
+    ]
+
+
+async def test_list_urgency_order_survives_paging(client: AsyncClient, alice_headers: dict) -> None:
+    # Interleave due dates and undated tasks so id order and urgency order disagree.
+    specs = [future_iso(60 - i) if i % 2 == 0 else None for i in range(12)]
+    created = [
+        await create(client, alice_headers, title=f"task {i}", **({"due_at": d} if d else {}))
+        for i, d in enumerate(specs)
+    ]
+    full = await client.get("/api/tasks", params={"limit": 100}, headers=alice_headers)
+    expected = [t["id"] for t in full.json()["items"]]
+    assert len(expected) == len(created)
+
+    paged: list[int] = []
+    for offset in range(0, 12, 5):
+        page = await client.get(
+            "/api/tasks", params={"limit": 5, "offset": offset}, headers=alice_headers
+        )
+        paged.extend(t["id"] for t in page.json()["items"])
+    assert paged == expected
+
+
+async def test_list_pages_cover_every_task_once(client: AsyncClient, alice_headers: dict) -> None:
+    for i in range(15):
+        due = future_iso(30 + i) if i % 3 == 0 else None
+        await create(client, alice_headers, title=f"task {i}", **({"due_at": due} if due else {}))
+
+    seen: list[int] = []
+    offset = 0
+    while True:
+        page = await client.get(
+            "/api/tasks", params={"limit": 4, "offset": offset}, headers=alice_headers
+        )
+        items = page.json()["items"]
+        if not items:
+            break
+        seen.extend(t["id"] for t in items)
+        offset += 4
+    assert len(seen) == len(set(seen)) == 15
+
+
+async def test_list_limit_one_returns_most_urgent(client: AsyncClient, alice_headers: dict) -> None:
+    await create(client, alice_headers, title="undated")
+    await create(client, alice_headers, title="far", due_at=future_iso(120))
+    soonest = await create(client, alice_headers, title="soonest", due_at=future_iso(5))
+
+    resp = await client.get("/api/tasks", params={"limit": 1, "offset": 0}, headers=alice_headers)
+    body = resp.json()
+    assert [t["id"] for t in body["items"]] == [soonest["id"]]
+
+
+async def test_list_limit_one_returns_undated_only_when_no_dated_tasks(
+    client: AsyncClient, alice_headers: dict
+) -> None:
+    first = await create(client, alice_headers, title="first")
+    await create(client, alice_headers, title="second")
+
+    resp = await client.get("/api/tasks", params={"limit": 1, "offset": 0}, headers=alice_headers)
+    body = resp.json()
+    assert [t["id"] for t in body["items"]] == [first["id"]]
+
+
+async def test_list_status_filter_is_urgency_ordered(
+    client: AsyncClient, alice_headers: dict
+) -> None:
+    todo_soon = await create(client, alice_headers, title="todo soon", due_at=future_iso(10))
+    todo_far = await create(client, alice_headers, title="todo far", due_at=future_iso(50))
+    done = await create(client, alice_headers, title="done", due_at=future_iso(5))
+    await client.patch(f"/api/tasks/{done['id']}", json={"status": "done"}, headers=alice_headers)
+
+    resp = await client.get("/api/tasks", params={"status": "todo"}, headers=alice_headers)
+    body = resp.json()
+    assert [t["id"] for t in body["items"]] == [todo_soon["id"], todo_far["id"]]
+    assert body["total"] == 2
+
+
+async def test_list_urgency_order_is_owner_scoped(
+    client: AsyncClient, alice_headers: dict, bob_headers: dict
+) -> None:
+    alice_task = await create(client, alice_headers, title="alice's", due_at=future_iso(60))
+    await create(client, bob_headers, title="bob's sooner", due_at=future_iso(5))
+
+    resp = await client.get("/api/tasks", params={"limit": 1, "offset": 0}, headers=alice_headers)
+    body = resp.json()
+    assert [t["id"] for t in body["items"]] == [alice_task["id"]]

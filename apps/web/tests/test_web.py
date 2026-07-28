@@ -15,6 +15,7 @@ import pytest
 import respx
 from fastapi.testclient import TestClient
 from web.main import (
+    BOARD_PAGE_SIZE,
     DEGRADED_REMINDERS_MESSAGE,
     PREV_STATUS,
     UTC_ZONE,
@@ -1442,6 +1443,70 @@ def test_page_fetch_error_still_renders_api_error_banner(client: TestClient) -> 
     assert resp.status_code == 200
     assert 'data-testid="api-error"' in resp.text
     assert 'data-testid="pager"' not in resp.text
+
+
+# --- board urgency ordering (issue #52) --------------------------------------
+
+
+@respx.mock
+def test_board_requests_a_single_page_of_board_page_size(client: TestClient) -> None:
+    # AC-9: a user with hundreds of tasks still costs the web layer one page.
+    login(client)
+    respx.get(f"{API}/api/auth/me").mock(return_value=httpx.Response(200, json=ME))
+    tasks_route = respx.get(f"{API}/api/tasks").mock(
+        return_value=httpx.Response(200, json=page_body(make_tasks(20), total=500))
+    )
+    mock_health()
+
+    client.get("/")
+
+    assert tasks_route.call_count == 1
+    params = tasks_route.calls.last.request.url.params
+    assert params["limit"] == str(BOARD_PAGE_SIZE)
+    assert params["offset"] == "0"
+
+
+@respx.mock
+def test_board_requests_a_single_page_and_one_count_call_when_filtered(
+    client: TestClient,
+) -> None:
+    login(client)
+    respx.get(f"{API}/api/auth/me").mock(return_value=httpx.Response(200, json=ME))
+    tasks_route = respx.get(f"{API}/api/tasks").mock(
+        side_effect=[
+            httpx.Response(200, json=page_body(make_tasks(20, "todo"), total=500)),
+            httpx.Response(200, json=page_body(make_tasks(1), total=800)),
+        ]
+    )
+    mock_health()
+
+    client.get("/?status=todo")
+
+    assert tasks_route.call_count == 2
+    for call in tasks_route.calls:
+        assert int(call.request.url.params["limit"]) <= BOARD_PAGE_SIZE
+    page_call, count_call = tasks_route.calls[0], tasks_route.calls[1]
+    assert page_call.request.url.params["limit"] == str(BOARD_PAGE_SIZE)
+    assert count_call.request.url.params["limit"] == "1"
+
+
+@respx.mock
+def test_board_preserves_server_order_within_columns(client: TestClient) -> None:
+    # decorate_tasks re-sorts on the same (due_at, id) key the server already
+    # ordered by, so a page already in urgency order must render unchanged.
+    login(client)
+    respx.get(f"{API}/api/auth/me").mock(return_value=httpx.Response(200, json=ME))
+    tasks = [
+        {**SEEDED[0], "id": 5, "title": "Most urgent", "status": "todo", "due_at": iso_in(60)},
+        {**SEEDED[0], "id": 9, "title": "Less urgent", "status": "todo", "due_at": iso_in(3600)},
+        {**SEEDED[0], "id": 7, "title": "Least urgent", "status": "todo", "due_at": None},
+    ]
+    respx.get(f"{API}/api/tasks").mock(return_value=httpx.Response(200, json=page_body(tasks)))
+    mock_health()
+
+    body = client.get("/").text
+
+    assert body.index(">Most urgent<") < body.index(">Less urgent<") < body.index(">Least urgent<")
 
 
 # --- new task --------------------------------------------------------------

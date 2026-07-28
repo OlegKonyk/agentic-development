@@ -4,7 +4,7 @@ from uuid import UUID, uuid4
 
 from pydantic import AfterValidator, BaseModel, field_serializer
 from pydantic import Field as PydanticField
-from sqlalchemy import DateTime
+from sqlalchemy import DateTime, Index
 from sqlmodel import Field, SQLModel
 
 Status = Literal["todo", "doing", "done"]
@@ -86,6 +86,10 @@ class Session(SQLModel, table=True):
 
 class Task(SQLModel, table=True):
     __tablename__ = "tasks"
+    # Serves the board's ordered page: equality on owner_id, then the exact
+    # (due_at ASC NULLS LAST, id ASC) order, so a page is an index range scan
+    # rather than a sort of the owner's whole task set.
+    __table_args__ = (Index("ix_tasks_owner_due_at_id", "owner_id", "due_at", "id"),)
 
     id: int | None = Field(default=None, primary_key=True)
     owner_id: int = Field(foreign_key="users.id", index=True)
