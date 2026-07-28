@@ -85,6 +85,38 @@ def test_board_stays_functional_while_degraded(
     expect(alice_page.get_by_test_id("task-row").filter(has_text="Other task")).to_have_count(0)
 
 
+def test_degraded_banner_and_empty_board_render_together(
+    vendor_admin: httpx.Client,
+    alice_api: ApiClient,
+    alice_page: Page,
+    clean_reminder_health: None,
+) -> None:
+    vendor_admin.post("/mappings", json=FAULT_5XX).raise_for_status()
+    task = alice_api.create_task("degraded-empty-board", due_at=rfc3339_in(2))
+
+    def health_degraded() -> bool:
+        alice_api.run_due_reminders()
+        return alice_api.reminder_health()["state"] == "degraded"
+
+    wait_until(health_degraded, timeout=30, message="reminder health degraded under vendor fault")
+    alice_api.delete_task(task["id"])  # a ReminderDelivery outlives its task
+
+    alice_page.goto("/")
+
+    banner = alice_page.get_by_test_id("reminder-degraded-banner")
+    empty_board = alice_page.get_by_test_id("empty-board")
+    expect(banner).to_be_visible()
+    expect(empty_board).to_be_visible()
+    banner_box = banner.bounding_box()
+    empty_box = empty_board.bounding_box()
+    assert banner_box is not None
+    assert empty_box is not None
+    assert banner_box["y"] < empty_box["y"]
+    expect(alice_page.get_by_role("banner")).to_have_count(1)
+    expect(alice_page.get_by_role("main")).to_have_count(1)
+    expect(alice_page.get_by_role("status")).to_have_count(1)
+
+
 def test_degraded_board_keeps_single_banner_and_main_landmarks(
     vendor_admin: httpx.Client,
     alice_api: ApiClient,
