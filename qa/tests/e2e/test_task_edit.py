@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterator
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from playwright.sync_api import Browser, Locator, Page, expect
@@ -13,6 +14,12 @@ from qa_helpers import ApiClient, alice_credentials, bob_credentials, rfc3339_in
 
 def _row(page: Page, title: str) -> Locator:
     return page.get_by_test_id("task-row").filter(has_text=title)
+
+
+def _local_input_in(seconds: float) -> str:
+    """A `datetime-local` value `seconds` from now, for pages fixed to the UTC tz."""
+    at = datetime.now(UTC) + timedelta(seconds=seconds)
+    return at.replace(microsecond=0).strftime("%Y-%m-%dT%H:%M")
 
 
 def test_edit_link_opens_prefilled_form(alice_api: ApiClient, alice_page: Page) -> None:
@@ -60,12 +67,12 @@ def test_edit_description_persists(alice_api: ApiClient, alice_page: Page) -> No
 
 
 def test_new_due_date_reorders_column(alice_api: ApiClient, alice_page: Page) -> None:
-    alice_api.create_task("Stays soon", "", due_at=rfc3339_in(60))
+    alice_api.create_task("Stays soon", "", due_at=rfc3339_in(86400))
     later = alice_api.create_task("Moves sooner", "", due_at=rfc3339_in(5 * 86400))
     alice_page.goto("/")
     _row(alice_page, "Moves sooner").get_by_test_id("edit-link").click()
 
-    alice_page.get_by_test_id("due-at-input").fill("2026-08-25T17:00")
+    alice_page.get_by_test_id("due-at-input").fill(_local_input_in(3600))
     alice_page.get_by_test_id("submit-edit").click()
 
     titles = alice_page.locator("#column-todo").get_by_test_id("task-title").all_inner_texts()
@@ -184,7 +191,7 @@ def test_cross_user_edit_discloses_nothing_and_does_not_modify(
     # Same-context request (real session cookie + a real csrf token from bob's
     # own board), aimed at alice's task id: must not disclose or mutate it.
     bob_page.goto("/new")
-    csrf = bob_page.locator('input[name="csrf_token"]').get_attribute("value")
+    csrf = bob_page.locator('form.stacked input[name="csrf_token"]').get_attribute("value")
     resp = bob_page.request.post(
         f"/tasks/{alice_task['id']}/edit",
         form={"title": "hijacked", "csrf_token": csrf},
