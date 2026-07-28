@@ -15,6 +15,7 @@ import respx
 from fastapi.testclient import TestClient
 from web.main import (
     DEGRADED_REMINDERS_MESSAGE,
+    PREV_STATUS,
     board_url,
     create_app,
     decorate_tasks,
@@ -1367,6 +1368,201 @@ def test_delete_csrf_mismatch_is_403(client: TestClient) -> None:
     assert not route.called
 
 
+# --- move-back ---------------------------------------------------------------
+
+
+def test_prev_status_map_is_one_column_back() -> None:
+    assert PREV_STATUS == {"done": "doing", "doing": "todo", "todo": "todo"}
+
+
+@respx.mock
+@pytest.mark.parametrize(
+    "task_id,before,after",
+    [(3, SEEDED[2], "doing"), (2, SEEDED[1], "todo")],
+    ids=["done-to-doing", "doing-to-todo"],
+)
+def test_move_back_patches_previous_status_and_redirects(
+    client: TestClient, task_id: int, before: dict, after: str
+) -> None:
+    csrf = login(client)
+    respx.get(f"{API}/api/tasks/{task_id}").mock(return_value=httpx.Response(200, json=before))
+    patch = respx.patch(f"{API}/api/tasks/{task_id}").mock(
+        return_value=httpx.Response(200, json={**before, "status": after})
+    )
+
+    resp = client.post(
+        f"/tasks/{task_id}/move-back", data={"csrf_token": csrf}, follow_redirects=False
+    )
+
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/"
+    assert patch.calls.last.request.headers["Authorization"] == AUTH
+    assert json.loads(patch.calls.last.request.content) == {"status": after}
+
+
+@respx.mock
+def test_move_back_todo_task_stays_todo(client: TestClient) -> None:
+    csrf = login(client)
+    respx.get(f"{API}/api/tasks/1").mock(return_value=httpx.Response(200, json=SEEDED[0]))
+    patch = respx.patch(f"{API}/api/tasks/1").mock(return_value=httpx.Response(200, json=SEEDED[0]))
+
+    resp = client.post("/tasks/1/move-back", data={"csrf_token": csrf}, follow_redirects=False)
+
+    assert resp.status_code == 303
+    assert not patch.called
+
+
+@respx.mock
+def test_move_back_patch_body_carries_status_only(client: TestClient) -> None:
+    csrf = login(client)
+    respx.get(f"{API}/api/tasks/3").mock(return_value=httpx.Response(200, json=SEEDED[2]))
+    patch = respx.patch(f"{API}/api/tasks/3").mock(
+        return_value=httpx.Response(200, json={**SEEDED[2], "status": "doing"})
+    )
+
+    client.post("/tasks/3/move-back", data={"csrf_token": csrf}, follow_redirects=False)
+
+    assert json.loads(patch.calls.last.request.content) == {"status": "doing"}
+
+
+@respx.mock
+def test_move_back_csrf_mismatch_is_403(client: TestClient) -> None:
+    login(client)
+    route = respx.get(f"{API}/api/tasks/3").mock(return_value=httpx.Response(200, json=SEEDED[2]))
+
+    resp = client.post(
+        "/tasks/3/move-back", data={"csrf_token": "wrong"}, follow_redirects=False
+    )
+
+    assert resp.status_code == 403
+    assert not route.called
+
+
+@respx.mock
+def test_move_back_missing_csrf_is_403(client: TestClient) -> None:
+    login(client)
+    route = respx.get(f"{API}/api/tasks/3").mock(return_value=httpx.Response(200, json=SEEDED[2]))
+
+    resp = client.post("/tasks/3/move-back", data={}, follow_redirects=False)
+
+    assert resp.status_code == 403
+    assert not route.called
+
+
+def test_move_back_without_session_redirects_to_login(client: TestClient) -> None:
+    csrf = extract_csrf(client.get("/login").text)
+
+    resp = client.post("/tasks/1/move-back", data={"csrf_token": csrf}, follow_redirects=False)
+
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/login?next=/tasks/1/move-back"
+
+
+@respx.mock
+def test_move_back_api_401_clears_session_and_redirects(client: TestClient) -> None:
+    csrf = login(client)
+    respx.get(f"{API}/api/tasks/1").mock(return_value=httpx.Response(401))
+
+    resp = client.post(
+        "/tasks/1/move-back", data={"csrf_token": csrf}, follow_redirects=False
+    )
+
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/login"
+
+
+@respx.mock
+def test_move_back_other_users_task_404_is_noop(client: TestClient) -> None:
+    csrf = login(client)
+    respx.get(f"{API}/api/tasks/99").mock(return_value=httpx.Response(404))
+
+    resp = client.post(
+        "/tasks/99/move-back", data={"csrf_token": csrf}, follow_redirects=False
+    )
+
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/"
+
+
+@respx.mock
+def test_move_back_api_down_still_redirects_to_board(client: TestClient) -> None:
+    csrf = login(client)
+    respx.get(f"{API}/api/tasks/1").mock(side_effect=httpx.ConnectError("refused"))
+
+    resp = client.post(
+        "/tasks/1/move-back", data={"csrf_token": csrf}, follow_redirects=False
+    )
+
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/"
+
+
+@respx.mock
+def test_move_back_redirects_back_to_filtered_board(client: TestClient) -> None:
+    csrf = login(client)
+    respx.get(f"{API}/api/tasks/3").mock(return_value=httpx.Response(200, json=SEEDED[2]))
+    respx.patch(f"{API}/api/tasks/3").mock(
+        return_value=httpx.Response(200, json={**SEEDED[2], "status": "doing"})
+    )
+
+    resp = client.post(
+        "/tasks/3/move-back",
+        data={"csrf_token": csrf, "status": "done"},
+        follow_redirects=False,
+    )
+
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/?status=done"
+
+
+@respx.mock
+def test_move_back_redirects_to_same_page_and_filter(client: TestClient) -> None:
+    csrf = login(client)
+    respx.get(f"{API}/api/tasks/3").mock(return_value=httpx.Response(200, json=SEEDED[2]))
+    respx.patch(f"{API}/api/tasks/3").mock(
+        return_value=httpx.Response(200, json={**SEEDED[2], "status": "doing"})
+    )
+
+    resp = client.post(
+        "/tasks/3/move-back",
+        data={"csrf_token": csrf, "status": "done", "page": "2"},
+        follow_redirects=False,
+    )
+
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/?status=done&page=2"
+
+
+@respx.mock
+def test_move_back_ignores_unknown_filter_value(client: TestClient) -> None:
+    csrf = login(client)
+    respx.get(f"{API}/api/tasks/3").mock(return_value=httpx.Response(200, json=SEEDED[2]))
+    respx.patch(f"{API}/api/tasks/3").mock(
+        return_value=httpx.Response(200, json={**SEEDED[2], "status": "doing"})
+    )
+
+    resp = client.post(
+        "/tasks/3/move-back",
+        data={"csrf_token": csrf, "status": "bogus"},
+        follow_redirects=False,
+    )
+
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/"
+
+
+@respx.mock
+def test_advance_still_uses_next_status_after_refactor(client: TestClient) -> None:
+    csrf = login(client)
+    respx.get(f"{API}/api/tasks/3").mock(return_value=httpx.Response(200, json=SEEDED[2]))
+    patch = respx.patch(f"{API}/api/tasks/3").mock(return_value=httpx.Response(200, json=SEEDED[2]))
+
+    resp = client.post("/tasks/3/advance", data={"csrf_token": csrf}, follow_redirects=False)
+
+    assert resp.status_code == 303
+    assert not patch.called
+
+
 def test_healthz(client: TestClient) -> None:
     resp = client.get("/healthz")
 
@@ -1384,9 +1580,23 @@ def test_index_row_actions_carry_task_scoped_aria_labels(client: TestClient) -> 
 
     body = client.get("/").text
 
+    assert 'aria-label="Move back Write the spec"' in body
     assert 'aria-label="Advance Write the spec"' in body
     assert 'aria-label="Delete Write the spec"' in body
+    assert body.count('aria-label="Move back') == len(SEEDED)
     assert body.count('aria-label="Delete') == len(SEEDED)
+
+
+@respx.mock
+def test_index_rows_render_move_back_form(client: TestClient) -> None:
+    login(client)
+    mock_board()
+
+    body = client.get("/").text
+
+    assert body.count('data-testid="move-back-btn"') == len(SEEDED)
+    assert f'action="/tasks/{SEEDED[0]["id"]}/move-back"' in body
+    assert body.count('class="btn-back" data-testid="move-back-btn"') == len(SEEDED)
 
 
 @respx.mock
