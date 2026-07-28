@@ -126,6 +126,59 @@ def test_new_form_controls_have_accessible_names(alice_page: Page) -> None:
     ).to_have_accessible_name("Create task")
 
 
+def test_edit_form_controls_have_accessible_names(alice_api: ApiClient, alice_page: Page) -> None:
+    task = alice_api.create_task("A11y edit target")
+    alice_page.goto(f"/tasks/{task['id']}/edit")
+
+    expect(
+        alice_page.get_by_test_id("title-input"),
+        'edit-task title input has no accessible name — is <label for="title"> still in edit.html?',
+    ).to_have_accessible_name("Title")
+    expect(
+        alice_page.get_by_test_id("description-input"),
+        'edit-task description textarea has no accessible name — is <label for="description"> '
+        "still in edit.html?",
+    ).to_have_accessible_name("Description")
+    expect(
+        alice_page.get_by_test_id("due-at-input"),
+        'edit-task due-at input has no accessible name — is <label for="due_at"> '
+        "still in edit.html?",
+    ).to_have_accessible_name(re.compile(r"^Due"))
+    expect(
+        alice_page.get_by_test_id("submit-edit"),
+        "edit-task submit button has no accessible name",
+    ).to_have_accessible_name("Save changes")
+    expect(
+        alice_page.get_by_test_id("edit-cancel"),
+        "edit-task cancel link has no accessible name",
+    ).to_have_accessible_name("Cancel")
+
+
+def test_edit_form_focus_order(alice_api: ApiClient, alice_page: Page) -> None:
+    task = alice_api.create_task("Focus order edit target")
+    alice_page.goto(f"/tasks/{task['id']}/edit")
+
+    expected = _form_controls(alice_page, "form.stacked")
+    assert expected, "edit-task form has no visible focusable controls"
+    assert expected == ["title-input", "description-input", "due-at-input", "submit-edit"]
+
+    seq = _tab_sequence(alice_page)
+    observed = [t for t in seq if t in expected]
+    assert observed == expected, (
+        f"edit-task form focus order was {observed}, expected {expected} (full sequence: {seq})"
+    )
+
+
+def test_edit_page_has_one_banner_and_one_main_landmark(
+    alice_api: ApiClient, alice_page: Page
+) -> None:
+    task = alice_api.create_task("Landmark check")
+    alice_page.goto(f"/tasks/{task['id']}/edit")
+
+    expect(alice_page.get_by_role("banner")).to_have_count(1)
+    expect(alice_page.get_by_role("main")).to_have_count(1)
+
+
 def test_login_form_focus_order(page: Page) -> None:
     page.goto("/login")
 
@@ -232,9 +285,11 @@ def test_row_actions_have_task_scoped_accessible_names(
 
     for title in ("Alpha task", "Beta task"):
         row = alice_page.get_by_test_id("task-row").filter(has_text=title)
+        expect(row.get_by_test_id("edit-link")).to_have_accessible_name(f"Edit {title}")
         expect(row.get_by_test_id("move-back-btn")).to_have_accessible_name(f"Move back {title}")
         expect(row.get_by_test_id("advance-btn")).to_have_accessible_name(f"Advance {title}")
         expect(row.get_by_test_id("delete-btn")).to_have_accessible_name(f"Delete {title}")
+        expect(alice_page.get_by_role("link", name=f"Edit {title}", exact=True)).to_have_count(1)
         expect(
             alice_page.get_by_role("button", name=f"Move back {title}", exact=True)
         ).to_have_count(1)

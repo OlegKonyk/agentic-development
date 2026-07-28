@@ -97,6 +97,16 @@ def test_list_tasks_pagination_is_documented(api_url: str) -> None:
     assert set(task_page["required"]) == {"items", "total", "limit", "offset"}
 
 
+def test_task_update_due_at_is_documented_nullable(api_url: str) -> None:
+    # PATCH /api/tasks/{id} clears due_at only on an explicit null; that
+    # semantics rides on TaskUpdate.due_at staying nullable in the schema.
+    spec = httpx.get(f"{api_url}/openapi.json", timeout=10.0).json()
+    task_update = spec["components"]["schemas"]["TaskUpdate"]
+    due_at_schema = task_update["properties"]["due_at"]
+    variants = due_at_schema.get("anyOf", [due_at_schema])
+    assert any(variant.get("type") == "null" for variant in variants)
+
+
 def test_reminder_health_operation_is_documented_and_401s_unauthenticated(api_url: str) -> None:
     spec = httpx.get(f"{api_url}/openapi.json", timeout=10.0).json()
     assert "/api/reminders/health" in spec["paths"]
