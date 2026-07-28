@@ -12,7 +12,11 @@
             data-testid="description-input">{{ description | default('') }}</textarea>
   <label for="due_at">Due (optional)</label>
   <input id="due_at" name="due_at" type="datetime-local"
-         data-testid="due-at-input" value="{{ due_at | default('') }}">
+         data-testid="due-at-input" aria-describedby="due-at-zone"
+         value="{{ due_at | default('') }}">
+  <p class="field-hint" id="due-at-zone" data-testid="due-at-zone">
+    Times are in {{ tz_name }}.
+  </p>
   <p><button type="submit" class="btn-primary" data-testid="submit-task">Create task</button></p>
 </form>
 {% endblock %}

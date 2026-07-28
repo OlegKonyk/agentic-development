@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 
 import pytest
 from playwright.sync_api import Browser, Page, expect
@@ -23,7 +23,7 @@ def _login_storage_state(
     browser: Browser, base_url: str, email: str, password: str, path: str
 ) -> str:
     """Log in through the REAL /login form once; persist cookies as storage state."""
-    context = browser.new_context(base_url=base_url)
+    context = browser.new_context(base_url=base_url, timezone_id="UTC")
     try:
         page = context.new_page()
         page.goto("/login")
@@ -63,13 +63,43 @@ def bob_storage_state(
 
 @pytest.fixture
 def alice_page(browser: Browser, base_url: str, alice_storage_state: str) -> Iterator[Page]:
-    context = browser.new_context(base_url=base_url, storage_state=alice_storage_state)
+    context = browser.new_context(
+        base_url=base_url, storage_state=alice_storage_state, timezone_id="UTC"
+    )
     yield context.new_page()
     context.close()
 
 
 @pytest.fixture
 def bob_page(browser: Browser, base_url: str, bob_storage_state: str) -> Iterator[Page]:
-    context = browser.new_context(base_url=base_url, storage_state=bob_storage_state)
+    context = browser.new_context(
+        base_url=base_url, storage_state=bob_storage_state, timezone_id="UTC"
+    )
     yield context.new_page()
     context.close()
+
+
+@pytest.fixture
+def zoned_alice_page(
+    browser: Browser, base_url: str, alice_storage_state: str
+) -> Iterator[Callable[[str], Page]]:
+    """Factory for an alice page in an arbitrary browser time zone.
+
+    Primes the `tz` cookie with one `goto('/')` before handing back the page, so
+    tests never race the base template's one-shot tz-sync reload.
+    """
+    contexts = []
+
+    def make(timezone_id: str) -> Page:
+        context = browser.new_context(
+            base_url=base_url, storage_state=alice_storage_state, timezone_id=timezone_id
+        )
+        contexts.append(context)
+        page = context.new_page()
+        page.goto("/")
+        expect(page.locator("html")).to_have_attribute("data-tz", timezone_id)
+        return page
+
+    yield make
+    for context in contexts:
+        context.close()
