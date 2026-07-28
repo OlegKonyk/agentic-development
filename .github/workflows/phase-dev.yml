@@ -12,8 +12,11 @@ on:
 
 permissions:
   contents: read
-  issues: read
-  pull-requests: read
+  # write, not read: the phases comment their cost line on the ticket with
+  # GITHUB_TOKEN (lab telemetry). Comments never chain a phase — only labels
+  # do, and those go through the App token — so this grants reach, not power.
+  issues: write
+  pull-requests: write
 
 env:
   CLAUDE_CODE_VERSION: "2.1.219"
@@ -88,7 +91,11 @@ jobs:
       - name: Post phase cost (lab telemetry, even on failure)
         if: always()
         run: |
-          [ -f agent-out/phase-cost.md ] && gh issue comment "$ISSUE" --body-file agent-out/phase-cost.md || true
+          if [ ! -f agent-out/phase-cost.md ]; then
+            echo "::warning::no phase-cost.md — agent step did not run"
+          elif ! gh issue comment "$ISSUE" --body-file agent-out/phase-cost.md; then
+            echo "::warning::could not post the phase cost line (telemetry only)"
+          fi
 
       - name: Require commits
         run: |
@@ -250,7 +257,11 @@ jobs:
       - name: Post phase cost (lab telemetry, even on failure)
         if: always()
         run: |
-          [ -f agent-out/phase-cost.md ] && gh issue comment "$PR_NUMBER" --body-file agent-out/phase-cost.md || true
+          if [ ! -f agent-out/phase-cost.md ]; then
+            echo "::warning::no phase-cost.md — agent step did not run"
+          elif ! gh issue comment "$PR_NUMBER" --body-file agent-out/phase-cost.md; then
+            echo "::warning::could not post the phase cost line (telemetry only)"
+          fi
 
       - name: Enforce privileged-path boundary
         # Same hard stop as the implement job, over this run's new commits only
