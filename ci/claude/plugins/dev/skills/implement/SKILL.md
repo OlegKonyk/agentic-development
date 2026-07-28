@@ -20,7 +20,10 @@ handles pushing and PR creation — you only write code and commit.
    must end up covered by at least one test somewhere in the pyramid
    (apps/*/tests, qa/tests/contract, qa/tests/e2e).
 3. Verify as you go: `uv run pytest apps/api apps/web -q` and
-   `uv run ruff check .` must pass before you finish. Record the real outcomes
+   `uv run ruff check .` **and `uv run ruff format --check .`** must pass before
+   you finish — CI runs both, and tier-1 QA runs neither, so an unformatted file
+   passes the QA gate and then fails `ci` with the PR already labelled
+   `qa-passed` (three times: PRs #13, #14, #57). Record the real outcomes
    in `commands_run` — never claim a run you didn't do.
 4. Commit in logical chunks with imperative messages
    (`git add <files> && git commit -m "..."`). Do NOT push; do NOT touch
