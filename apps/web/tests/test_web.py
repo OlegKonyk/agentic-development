@@ -19,6 +19,7 @@ from web.main import (
     board_url,
     create_app,
     decorate_tasks,
+    empty_state,
     filter_options,
     format_due_at,
     normalize_status,
@@ -238,6 +239,29 @@ def test_filter_options_marks_active_and_defaults_to_all() -> None:
     active_doing = filter_options("doing")
     assert sum(1 for o in active_doing if o["active"]) == 1
     assert next(o for o in active_doing if o["value"] == "doing")["active"] is True
+
+
+@pytest.mark.parametrize(
+    ("api_error", "active", "total", "expected"),
+    [
+        (True, None, 0, None),
+        (True, "todo", 0, None),
+        (True, None, None, None),
+        (True, "done", 5, None),
+        (False, None, 0, "board"),
+        (False, "todo", 0, "filter"),
+        (False, "doing", 0, "filter"),
+        (False, "done", 0, "filter"),
+        (False, None, 3, None),
+        (False, "todo", 3, None),
+        (False, None, None, None),
+        (False, "todo", None, None),
+    ],
+)
+def test_empty_state_helper_truth_table(
+    api_error: bool, active: str | None, total: int | None, expected: str | None
+) -> None:
+    assert empty_state(api_error, active, total) == expected
 
 
 def test_decorate_tasks_marks_overdue_only_for_past_due() -> None:
@@ -935,6 +959,174 @@ def test_delete_without_filter_redirects_to_board(client: TestClient) -> None:
 
     assert resp.status_code == 303
     assert resp.headers["location"] == "/"
+
+
+# --- empty state --------------------------------------------------------------
+
+
+@respx.mock
+def test_board_with_zero_tasks_renders_empty_board_message(client: TestClient) -> None:
+    login(client)
+    respx.get(f"{API}/api/auth/me").mock(return_value=httpx.Response(200, json=ME))
+    respx.get(f"{API}/api/tasks").mock(
+        return_value=httpx.Response(200, json=page_body([], total=0))
+    )
+    mock_health()
+
+    body = client.get("/").text
+
+    assert 'data-testid="empty-board"' in body
+    assert "No tasks yet." in body
+    start = body.index('data-testid="empty-board-new-link"')
+    tag_start = body.rindex("<a", 0, start)
+    tag_end = body.index(">", start)
+    assert 'href="/new"' in body[tag_start:tag_end]
+    assert "Add your first task" in body
+    assert 'data-testid="empty-filter"' not in body
+
+
+@respx.mock
+def test_board_with_tasks_renders_no_empty_message(client: TestClient) -> None:
+    login(client)
+    mock_board()
+
+    body = client.get("/").text
+
+    assert 'data-testid="empty-board"' not in body
+    assert 'data-testid="empty-filter"' not in body
+
+
+@respx.mock
+def test_filtered_board_with_no_matches_renders_empty_filter_message(client: TestClient) -> None:
+    login(client)
+    respx.get(f"{API}/api/auth/me").mock(return_value=httpx.Response(200, json=ME))
+    respx.get(f"{API}/api/tasks").mock(
+        side_effect=[
+            httpx.Response(200, json=page_body([], total=0)),
+            httpx.Response(200, json=page_body(SEEDED, total=3)),
+        ]
+    )
+    mock_health()
+
+    body = client.get("/?status=done").text
+
+    assert 'data-testid="empty-filter"' in body
+    assert "Nothing in done right now." in body
+    assert 'data-testid="empty-board"' not in body
+    assert 'data-testid="task-count">3<' in body
+
+
+@respx.mock
+def test_zero_task_filtered_board_shows_only_empty_filter(client: TestClient) -> None:
+    login(client)
+    respx.get(f"{API}/api/auth/me").mock(return_value=httpx.Response(200, json=ME))
+    respx.get(f"{API}/api/tasks").mock(
+        return_value=httpx.Response(200, json=page_body([], total=0))
+    )
+    mock_health()
+
+    body = client.get("/?status=todo").text
+
+    assert body.count('data-testid="empty-') == 1
+    assert 'data-testid="empty-filter"' in body
+    assert 'data-testid="empty-board"' not in body
+
+
+@respx.mock
+def test_filtered_board_with_matches_renders_no_empty_message(client: TestClient) -> None:
+    login(client)
+    mock_board()
+
+    body = client.get("/?status=todo").text
+
+    assert 'data-testid="empty-board"' not in body
+    assert 'data-testid="empty-filter"' not in body
+
+
+@pytest.mark.parametrize("url", ["/", "/?status=done"])
+@respx.mock
+def test_api_error_suppresses_empty_messages(client: TestClient, url: str) -> None:
+    login(client)
+    respx.get(f"{API}/api/auth/me").mock(return_value=httpx.Response(200, json=ME))
+    respx.get(f"{API}/api/tasks").mock(side_effect=httpx.ConnectError("refused"))
+
+    body = client.get(url).text
+
+    assert 'data-testid="api-error"' in body
+    assert 'data-testid="empty-board"' not in body
+    assert 'data-testid="empty-filter"' not in body
+
+
+@respx.mock
+def test_empty_state_renders_after_degraded_banner_and_filter_nav(client: TestClient) -> None:
+    login(client)
+    respx.get(f"{API}/api/auth/me").mock(return_value=httpx.Response(200, json=ME))
+    respx.get(f"{API}/api/tasks").mock(
+        return_value=httpx.Response(200, json=page_body([], total=0))
+    )
+    mock_health(return_value=httpx.Response(200, json={"state": "degraded"}))
+
+    body = client.get("/").text
+
+    banner_index = body.index('data-testid="reminder-degraded-banner"')
+    filter_index = body.index('data-testid="status-filter"')
+    empty_index = body.index('data-testid="empty-board"')
+    assert banner_index < filter_index < empty_index
+
+
+@respx.mock
+def test_empty_state_markup_adds_no_roles_or_landmarks(client: TestClient) -> None:
+    login(client)
+    respx.get(f"{API}/api/auth/me").mock(return_value=httpx.Response(200, json=ME))
+    respx.get(f"{API}/api/tasks").mock(
+        return_value=httpx.Response(200, json=page_body([], total=0))
+    )
+    mock_health()
+
+    for url in ("/", "/?status=todo"):
+        body = client.get(url).text
+        assert body.count("<header") == 1
+        assert body.count("<main") == 1
+        testid = "empty-board" if url == "/" else "empty-filter"
+        start = body.index(f'data-testid="{testid}"')
+        tag_start = body.rindex("<p", 0, start)
+        tag_end = body.index(">", start)
+        tag = body[tag_start:tag_end]
+        assert "role=" not in tag
+        assert "tabindex" not in tag
+        assert "autofocus" not in tag
+
+
+@respx.mock
+def test_empty_filter_message_renders_once_inside_the_filtered_column(client: TestClient) -> None:
+    login(client)
+    respx.get(f"{API}/api/auth/me").mock(return_value=httpx.Response(200, json=ME))
+    respx.get(f"{API}/api/tasks").mock(
+        return_value=httpx.Response(200, json=page_body([], total=0))
+    )
+    mock_health()
+
+    body = client.get("/?status=doing").text
+
+    assert body.count('data-testid="empty-filter"') == 1
+    column_index = body.index('id="column-doing"')
+    empty_index = body.index('data-testid="empty-filter"')
+    assert column_index < empty_index
+
+
+@respx.mock
+def test_unknown_status_with_zero_tasks_shows_empty_board_message(client: TestClient) -> None:
+    login(client)
+    respx.get(f"{API}/api/auth/me").mock(return_value=httpx.Response(200, json=ME))
+    respx.get(f"{API}/api/tasks").mock(
+        return_value=httpx.Response(200, json=page_body([], total=0))
+    )
+    mock_health()
+
+    body = client.get("/?status=archived").text
+
+    assert 'data-testid="empty-board"' in body
+    assert 'data-testid="empty-filter"' not in body
 
 
 # --- board pagination --------------------------------------------------------
