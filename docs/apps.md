@@ -140,19 +140,49 @@ error banner `login-error`), `POST /login` (CSRF-checked; success → 303 `/`),
 `POST /logout` (`logout-btn`) → API logout + clear cookie + 303 `/login`,
 `GET /` board (v1 testids unchanged: `task-list`, `task-row`, `task-title`,
 `task-status`, `new-task-link`, `advance-btn`, `delete-btn`, `task-count`;
-`user-email`; `due-at` per row now renders a human-readable UTC label, e.g.
-`25 Jul 2026, 12:34 UTC`, instead of the raw RFC3339 timestamp, and is present
-only when the task has a `due_at`; `reminder-badge` when status ≠ none; new
+`user-email`; `due-at` per row now renders the task's instant in the
+*viewer's* time zone, zone named as an IANA id in parentheses, e.g.
+`25 Aug 2026, 17:00 (Europe/Berlin)` (`(UTC)` when the zone can't be
+resolved), instead of the raw RFC3339 timestamp, and is present only when the
+task has a `due_at`; `reminder-badge` when status ≠ none; new
 `overdue-badge` per row, present only when `due_at` is strictly in the past
 (absent from the DOM otherwise, not merely hidden); within each column, rows
 are ordered by soonest `due_at` first, undated tasks last, ascending task id
-as tie-break — `GET /api/tasks` ordering and payload are unchanged, this is a
-web-layer-only concern); row actions carry task-scoped accessible names, DOM
-order `Move back <title>` / `Advance <title>` / `Delete <title>`
-(`aria-label="Move back <title>"` / `"Advance <title>"` / `"Delete <title>"`),
-testids and visible text unchanged, `GET|POST /new` (adds optional
-`due-at-input`), advance/delete as v1, `GET /healthz`. All forms carry hidden
-`csrf_token` (session-stored, compared on POST; mismatch → 403).
+as tie-break — ordering and the overdue flag compare aware UTC instants and
+are unaffected by the viewer's zone; `GET /api/tasks` ordering and payload
+are unchanged, this is a web-layer-only concern); row actions carry
+task-scoped accessible names, DOM order `Move back <title>` / `Advance
+<title>` / `Delete <title>` (`aria-label="Move back <title>"` / `"Advance
+<title>"` / `"Delete <title>"`), testids and visible text unchanged,
+`GET|POST /new` (adds optional `due-at-input`), advance/delete as v1, `GET
+/healthz`. All forms carry hidden `csrf_token` (session-stored, compared on
+POST; mismatch → 403).
+
+**Viewer time zone.** `due-at-input` on `GET|POST /new` is interpreted in the
+viewer's time zone, not UTC. The zone comes from a `tz` cookie (name `tz`,
+`path=/`, `max-age=31536000`, `samesite=lax`, not `HttpOnly`, no `Secure` —
+matches `SessionMiddleware(https_only=False)`); the value is a bare IANA
+zone key (e.g. `Europe/Berlin`), validated server-side (`^[A-Za-z][A-Za-z0-9_
++/-]{0,63}$`, no `..`, must resolve via `zoneinfo`) before use. Absent,
+malformed, unknown, or over-long values fall back to `UTC` — deterministically
+and always labelled, never a silent guess (HTTP 200, no traceback). `apps/web`
+is the app's first client-side JavaScript: one inline `<script>` in
+`base.html`'s `<head>` reads `Intl.DateTimeFormat().resolvedOptions().timeZone`
+and writes the `tz` cookie when it disagrees with the server-rendered
+`<html data-tz="...">`, then reloads the page once (`location.replace`, a GET,
+no re-POST) to pick up the corrected zone — bounded to at most one reload per
+zone per tab via `sessionStorage`, and never triggered on a POST-rendered page
+(`<html>` carries `data-tz-sync="1"` only on GET-rendered pages). Fully
+wrapped in `try/catch`; with JavaScript disabled or cookies blocked, the app
+degrades to the `UTC` fallback, explicitly labelled. `GET /new` renders a
+`due-at-zone` hint (`Times are in <zone>.`) that `due-at-input` references via
+`aria-describedby` (its accessible name still comes from its `<label>`).
+Conversion is date-aware (`datetime.replace(tzinfo=<the entered date's zone>)`
+then `.astimezone(UTC)`), so a due date on the far side of a DST transition
+resolves to the offset in force on *that* date, not today's. `POST /new`'s
+`due_at`, ordering, and the API's future-only 422 validation are otherwise
+unchanged; a rejected submission re-renders `/new` with the typed value and
+the same viewer zone.
 
 `POST /tasks/{id}/move-back` — moves a task one column back (`done → doing`,
 `doing → todo`; `todo` is the floor, submitting it on a `todo` task is a
