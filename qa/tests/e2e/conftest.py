@@ -6,6 +6,8 @@ from collections.abc import Iterator
 import pytest
 from playwright.sync_api import Browser, Page, expect
 from qa_helpers import alice_credentials, bob_credentials
+from qa_helpers.health_lever import health_lever  # noqa: F401
+from qa_helpers.toxiproxy import toxiproxy_no_leak_guard  # noqa: F401
 
 DEFAULT_GATEWAY_URL = "http://localhost:8787"
 
