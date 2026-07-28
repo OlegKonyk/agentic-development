@@ -1,5 +1,6 @@
 """Taskboard web UI: server-rendered pages proxying the JSON API (v2, authed)."""
 
+import json
 import math
 import os
 import re
@@ -107,8 +108,31 @@ class AuthRedirect(Exception):
         self.url = url
 
 
+DRAFT_MAX_BYTES = 1800  # signed session cookie must stay well under browsers' ~4 KiB limit
+
+
+def draft_fits(draft: dict[str, str]) -> bool:
+    """True when the draft is small enough to ride in the session cookie."""
+    return len(json.dumps(draft, separators=(",", ":")).encode()) <= DRAFT_MAX_BYTES
+
+
+def same_user(owner: str | None, email: str | None) -> bool:
+    """True only when a stashed draft belongs to the signed-in account."""
+    if not owner or not email:
+        return False
+    return owner.strip().casefold() == email.strip().casefold()
+
+
 class SessionExpired(Exception):
-    """Raised when the API rejects the stored bearer token (401 mid-session)."""
+    """Raised when the API rejects the stored bearer token (401 mid-session).
+
+    `next_url` is where the user should land after signing back in; `draft` is
+    the typed new-task input to carry across the re-login.
+    """
+
+    def __init__(self, next_url: str | None = None, draft: dict[str, str] | None = None) -> None:
+        self.next_url = next_url
+        self.draft = draft
 
 
 def safe_next(target: str | None) -> str:
@@ -282,8 +306,14 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(SessionExpired)
     async def on_session_expired(request: Request, exc: SessionExpired) -> RedirectResponse:
-        request.session.clear()
-        return RedirectResponse(url="/login", status_code=303)
+        owner = request.session.get("email")
+        request.session.clear()  # the dead token and csrf go, unconditionally
+        request.session["expired"] = True
+        if exc.draft and owner and draft_fits(exc.draft):
+            request.session["draft"] = exc.draft
+            request.session["draft_owner"] = owner
+        url = f"/login?next={quote(exc.next_url)}" if exc.next_url else "/login"
+        return RedirectResponse(url=url, status_code=303)
 
     @app.get("/login", response_class=HTMLResponse)
     async def login_form(request: Request, next: str = "/") -> HTMLResponse:
@@ -295,6 +325,7 @@ def create_app() -> FastAPI:
                 "csrf": ensure_csrf(request),
                 "next": safe_next(next),
                 "error": False,
+                "session_expired": bool(request.session.get("expired")),
                 "tz_name": zone.key,
                 "tz_sync": True,
             },
@@ -317,6 +348,11 @@ def create_app() -> FastAPI:
             resp = None
         if resp is not None and resp.status_code == 200:
             request.session["token"] = resp.json()["token"]
+            request.session["email"] = email.strip()
+            request.session.pop("expired", None)
+            if not same_user(request.session.get("draft_owner"), email):
+                request.session.pop("draft", None)
+                request.session.pop("draft_owner", None)
             return RedirectResponse(url=safe_next(next), status_code=303)
         zone = resolve_zone(request.cookies.get(TZ_COOKIE))
         return templates.TemplateResponse(
@@ -326,6 +362,7 @@ def create_app() -> FastAPI:
                 "csrf": ensure_csrf(request),
                 "next": safe_next(next),
                 "error": True,
+                "session_expired": bool(request.session.get("expired")),
                 "tz_name": zone.key,
                 "tz_sync": False,
             },
@@ -433,6 +470,9 @@ def create_app() -> FastAPI:
     async def new_form(request: Request) -> HTMLResponse:
         require_token(request)
         zone = resolve_zone(request.cookies.get(TZ_COOKIE))
+        draft: dict[str, str] = {}
+        if same_user(request.session.get("draft_owner"), request.session.get("email")):
+            draft = request.session.get("draft") or {}
         return templates.TemplateResponse(
             request,
             "new.html",
@@ -440,6 +480,9 @@ def create_app() -> FastAPI:
                 "api_error": False,
                 "authed": True,
                 "csrf": ensure_csrf(request),
+                "title": draft.get("title", ""),
+                "description": draft.get("description", ""),
+                "due_at": draft.get("due_at", ""),
                 "tz_name": zone.key,
                 "tz_sync": True,
             },
@@ -455,6 +498,8 @@ def create_app() -> FastAPI:
     ) -> HTMLResponse | RedirectResponse:
         check_csrf(request, csrf_token)
         token = require_token(request)
+        request.session.pop("draft", None)
+        request.session.pop("draft_owner", None)
         zone = resolve_zone(request.cookies.get(TZ_COOKIE))
         payload: dict[str, str] = {"title": title, "description": description}
         api_error = False
@@ -464,7 +509,10 @@ def create_app() -> FastAPI:
                 payload["due_at"] = to_rfc3339_z(due_at.strip(), zone)
             resp = await api(request).post("/api/tasks", json=payload, headers=bearer(token))
             if resp.status_code == 401:
-                raise SessionExpired
+                raise SessionExpired(
+                    next_url="/new",
+                    draft={"title": title, "description": description, "due_at": due_at},
+                )
             if resp.status_code == 422:
                 api_error = True
                 body: dict = {}

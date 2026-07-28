@@ -137,7 +137,22 @@ Seed (idempotent, fixed ids/timestamps): `uv run --package taskboard-api python 
 Owns no data; holds the API bearer token in a signed session cookie
 (`SessionMiddleware`, `SECRET_KEY` env, same_site=lax, https_only=False).
 Protected pages without a valid token → 303 to `/login?next=...`; API 401 mid-
-session → clear cookie + 303 `/login`.
+session → clear cookie + 303 `/login` (`POST /new`: 303 `/login?next=/new`,
+stashing the typed title/description/due-at in the signed session cookie for
+the same user's next successful login; size-capped, dropped on submit,
+logout, or a different user's login).
+
+The login page carries a `session-expired` notice (`data-testid="session-
+expired"`, class `banner-notice`, text `Your session expired. Please sign in
+again.`) whenever the browser's signed session carries the mid-session-expiry
+flag set by that 401 handling — a distinct element from `login-error`, above
+it, both may render together after a mistyped password, and absent from the
+DOM (not merely hidden) on a direct `GET /login`, an unauthenticated
+protected-page redirect, or the login page reached via `POST /logout`. `GET
+/new` pre-fills `title-input`, `description-input` and `due-at-input` from a
+stashed draft only when the signed-in account is the one that typed it; a
+draft is dropped once used, on `POST /logout`, or when a different account
+signs in.
 
 Routes: `GET /login` (form: `email-input`, `password-input`, `submit-login`,
 error banner `login-error`), `POST /login` (CSRF-checked; success → 303 `/`),
