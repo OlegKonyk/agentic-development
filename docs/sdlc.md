@@ -263,7 +263,9 @@ claude -p "<skill invocation + context>" \
   mode; enforcement lives in YAML + permission flags).
 - Every run's full JSON payload (incl. `total_cost_usd`, `num_turns`,
   `session_id`) is uploaded as an artifact, and every phase surfaces its cost
-  line (`Agent phase … N turns, ~$C …`) on the ticket: product/design append
+  line (the phase workflows therefore need `issues: write` /
+  `pull-requests: write` for `GITHUB_TOKEN`; comments chain nothing, so this is
+  reach without power) (`Agent phase … N turns, ~$C …`) on the ticket: product/design append
   it to their spec/design comments, dev/rework post it on the issue/PR even
   when the run fails, QA's rides the verdict comment, retro's rides the retro
   comment. `scripts/lab_metrics.py` parses these lines, so full-pipeline
