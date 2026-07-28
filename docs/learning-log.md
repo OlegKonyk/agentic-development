@@ -263,3 +263,43 @@ condition still fails correctly.
 executing the thing against real artifacts, and none by reading it. The
 pipeline's own charter has said "evidence over assertion" since day one; it
 applies to the pipeline's own code most of all.
+
+## 2026-07-28 — Ticket #36: contract-tier determinism, and a phase permission gap recurs
+
+_Drafted by the retro phase from the ticket's own artifacts; reviewed and landed
+by the orchestrator, per the self-improvement loop's human gate._
+
+1. **The QA-phase permission fix (PR #10 cycles 2-3) never generalized to dev,
+   and dev paid for it the first time it needed a live stack.** #36's first dev
+   attempt (18.7 min) hit `error_max_turns` after 13 permission denials — all
+   arg-scoping artifacts (`docker compose ps`, `cd apps/api && uv run alembic
+   ...`, `DATABASE_URL=... uv run ...`, backgrounded servers) — while trying to
+   boot the API to generate the contract corpus. Dev carried the pre-fix
+   permission model because no earlier dev ticket had needed a running stack
+   rather than pytest alone. A human root-caused it and shipped PR #39 (the QA
+   trust model extended to dev), then re-drove: 121 turns/$6.25/13 denials
+   became 101 turns/$4.52/0 denials. Cost: one wasted dev run plus an unplanned
+   human intervention, for a defect class the pipeline had already fixed once
+   in a sibling phase — found reactively both times. PR #43 makes the model an
+   asserted invariant so there is no third time.
+2. **Design overrode both the PM's explicit answer and the ticket's own
+   framing — 2/2 for the design-wins rule, and a new kind of override.** It
+   rejected pinning Hypothesis's nondeterministic input pool (the fix the
+   spec's framing assumed) in favour of removing generation from the gating
+   path entirely and replaying a committed corpus, and chose "drift fails the
+   gate" over the PM's explicit "report loudly, don't fail", reasoning that an
+   always-present warning becomes invisible. The PM accepted both. This is the
+   first time an agent phase rejected the orchestrator's *problem framing*
+   rather than its answer.
+3. Otherwise uneventful: spec (11 turns, $0.71) and QA (36 turns, ~$1.49,
+   10/10 ACs verified with direct evidence — two byte-identical determinism
+   runs, a corrupted-digest drift trigger, a replay reconstruction — no
+   findings) ran clean. Idea to deploy in under an hour, one unplanned park.
+4. **The retro loop detects symptoms it cannot diagnose.** It filed the same
+   proposal three times (#27/#30/#33) about missing dev-phase cost, never
+   finding the cause: `phase-dev.yml` granted `issues: read`, so every cost
+   comment was a 403 swallowed by `|| true`, and dev telemetry had never worked
+   (fixed in #41). The gap between noticing and diagnosing is what the human
+   gate is for. The same run also proved the loop's dedupe works — with the
+   open-proposal list in context it filed one proposal where it would
+   previously have filed three.
