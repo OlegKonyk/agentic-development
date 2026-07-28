@@ -18,6 +18,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 STATUS_COLUMNS = ("todo", "doing", "done")
 NEXT_STATUS = {"todo": "doing", "doing": "done", "done": "done"}
+PREV_STATUS = {"done": "doing", "doing": "todo", "todo": "todo"}
 # The web passes `limit` explicitly rather than relying on the API default, so
 # a future API default change can't silently resize the board.
 BOARD_PAGE_SIZE = 20
@@ -221,6 +222,26 @@ def create_app() -> FastAPI:
     def bearer(token: str) -> dict[str, str]:
         return {"Authorization": f"Bearer {token}"}
 
+    async def shift_status(
+        request: Request, task_id: int, token: str, moves: dict[str, str]
+    ) -> None:
+        """Move a task one column per `moves`; a no-op when the map is a fixed point."""
+        try:
+            resp = await api(request).get(f"/api/tasks/{task_id}", headers=bearer(token))
+            if resp.status_code == 401:
+                raise SessionExpired
+            if resp.status_code == 200:
+                current = resp.json().get("status")
+                nxt = moves.get(current)
+                if nxt is not None and nxt != current:
+                    patched = await api(request).patch(
+                        f"/api/tasks/{task_id}", json={"status": nxt}, headers=bearer(token)
+                    )
+                    if patched.status_code == 401:
+                        raise SessionExpired
+        except httpx.HTTPError:
+            pass  # index will surface the api-error banner
+
     @app.exception_handler(AuthRedirect)
     async def on_auth_redirect(request: Request, exc: AuthRedirect) -> RedirectResponse:
         return RedirectResponse(url=exc.url, status_code=303)
@@ -421,21 +442,21 @@ def create_app() -> FastAPI:
     ) -> RedirectResponse:
         check_csrf(request, csrf_token)
         token = require_token(request)
-        try:
-            resp = await api(request).get(f"/api/tasks/{task_id}", headers=bearer(token))
-            if resp.status_code == 401:
-                raise SessionExpired
-            if resp.status_code == 200:
-                current = resp.json().get("status")
-                nxt = NEXT_STATUS.get(current)
-                if nxt is not None and nxt != current:
-                    patched = await api(request).patch(
-                        f"/api/tasks/{task_id}", json={"status": nxt}, headers=bearer(token)
-                    )
-                    if patched.status_code == 401:
-                        raise SessionExpired
-        except httpx.HTTPError:
-            pass  # index will surface the api-error banner
+        await shift_status(request, task_id, token, NEXT_STATUS)
+        url = board_url(normalize_status(status), parse_page(page))
+        return RedirectResponse(url=url, status_code=303)
+
+    @app.post("/tasks/{task_id}/move-back")
+    async def move_task_back(
+        request: Request,
+        task_id: int,
+        csrf_token: Annotated[str, Form()] = "",
+        status: Annotated[str, Form()] = "",
+        page: Annotated[str, Form()] = "",
+    ) -> RedirectResponse:
+        check_csrf(request, csrf_token)
+        token = require_token(request)
+        await shift_status(request, task_id, token, PREV_STATUS)
         url = board_url(normalize_status(status), parse_page(page))
         return RedirectResponse(url=url, status_code=303)
 

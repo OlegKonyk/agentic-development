@@ -36,6 +36,13 @@
       <span class="badge" data-testid="reminder-badge">{{ task.reminder_status }}</span>
       {% endif %}
       <div class="actions">
+        <form method="post" action="/tasks/{{ task.id }}/move-back">
+          <input type="hidden" name="csrf_token" value="{{ csrf }}">
+          <input type="hidden" name="status" value="{{ active_status or '' }}">
+          <input type="hidden" name="page" value="{{ page }}">
+          <button type="submit" class="btn-back" data-testid="move-back-btn"
+                  aria-label="Move back {{ task.title }}">Move back</button>
+        </form>
         <form method="post" action="/tasks/{{ task.id }}/advance">
           <input type="hidden" name="csrf_token" value="{{ csrf }}">
           <input type="hidden" name="status" value="{{ active_status or '' }}">
