@@ -1,7 +1,14 @@
-"""Schemathesis v4 contract suite, run directly against the API origin.
+"""Schemathesis v4 contract suite, replaying a committed corpus.
 
-Every generated case carries a real bearer obtained via login. The token is
-minted fresh per schema operation so a fuzzed /api/auth/logout or
+Generation happens once, offline, in `make contract-refresh` (see
+`qa_helpers/contract_corpus.py`) and produces a reviewable diff of
+`corpus.json`. The gating tier only replays those committed cases — no
+Hypothesis, no PRNG, no import-order sensitivity — so the verdict is a pure
+function of the commit. Unbounded randomised fuzzing continues in the
+non-gating `nightly-fuzz.yml`.
+
+Every case carries a real bearer obtained via login. The token is minted
+fresh per schema operation so a replayed /api/auth/logout or
 /api/testing/reset only revokes its own session, never a neighbour's.
 Unauthenticated 401 is a documented response, so it is never a failure here.
 """
@@ -9,18 +16,20 @@ Unauthenticated 401 is a documented response, so it is never a failure here.
 from __future__ import annotations
 
 import os
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
+from typing import Any
 
 import httpx
 import pytest
 import schemathesis
-from hypothesis import HealthCheck, settings
 from qa_helpers import ApiClient, alice_credentials
+from qa_helpers.contract_corpus import entry_to_case, load_corpus
 from schemathesis.specs.openapi.checks import negative_data_rejection, positive_data_acceptance
 
 API_URL = os.environ.get("API_URL", "http://localhost:8000").rstrip("/")
 
 schema = schemathesis.openapi.from_url(f"{API_URL}/openapi.json")
+CORPUS = load_corpus()
 
 
 @pytest.fixture
@@ -30,26 +39,36 @@ def bearer_headers(api_url: str) -> Iterator[dict[str, str]]:
         yield {"Authorization": f"Bearer {client.token}"}
 
 
-# derandomize gives a fixed generation order — deterministic in CI by construction.
-@schema.parametrize()
-@settings(
-    max_examples=25,
-    derandomize=True,
-    deadline=None,
-    suppress_health_check=[HealthCheck.function_scoped_fixture],
-)
-def test_api_contract(case: schemathesis.Case, bearer_headers: dict[str, str]) -> None:
-    # Two checks are excluded by design:
-    # - positive_data_acceptance: due_at-must-be-future and webhook HMAC rules
-    #   cannot be expressed in JSON Schema, so schema-valid requests may
-    #   legitimately get 4xx.
-    # - negative_data_rejection: FastAPI ignores unknown query params/headers
-    #   (standard REST leniency), which this check counts as acceptance.
-    # Schema conformance, documented statuses, and no-5xx still apply everywhere.
-    case.call_and_validate(
-        headers=bearer_headers,
-        excluded_checks=[positive_data_acceptance, negative_data_rejection],
-    )
+@pytest.mark.parametrize("operation_key", CORPUS.operation_keys())
+def test_api_contract(
+    operation_key: str,
+    bearer_headers: dict[str, str],
+    record_contract_failure: Callable[[str, dict[str, Any], BaseException], None],
+    _contract_sent: list[str],
+) -> None:
+    op = next(o for o in CORPUS.operations if o["key"] == operation_key)
+    for entry in op["cases"]:
+        case = entry_to_case(schema, op["path"], op["method"], entry)
+        _contract_sent.append(entry["id"])
+        try:
+            # Two checks are excluded by design:
+            # - positive_data_acceptance: due_at-must-be-future and webhook HMAC rules
+            #   cannot be expressed in JSON Schema, so schema-valid requests may
+            #   legitimately get 4xx.
+            # - negative_data_rejection: FastAPI ignores unknown query params/headers
+            #   (standard REST leniency), which this check counts as acceptance.
+            # Schema conformance, documented statuses, and no-5xx still apply everywhere.
+            case.call_and_validate(
+                headers=bearer_headers,
+                excluded_checks=[positive_data_acceptance, negative_data_rejection],
+            )
+        except AssertionError as exc:
+            record_contract_failure(operation_key, entry, exc)
+            raise AssertionError(
+                f"contract violation on corpus entry {entry['id']} ({operation_key})\n"
+                f"reproduce: uv run python -m qa_helpers.contract_corpus "
+                f"--replay {entry['id']}\n{exc}"
+            ) from exc
 
 
 def test_list_tasks_pagination_is_documented(api_url: str) -> None:

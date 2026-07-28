@@ -1,4 +1,4 @@
-.PHONY: install lint test stack-up stack-down gateway-dev seed e2e contract qa-local clean
+.PHONY: install lint test stack-up stack-down gateway-dev seed e2e contract contract-refresh qa-local clean
 
 install:
 	uv sync --all-packages
@@ -29,6 +29,9 @@ e2e:
 
 contract:
 	uv run pytest qa/tests/contract -q
+
+contract-refresh:
+	uv run python -m qa_helpers.contract_corpus --refresh
 
 # Run the QA agent locally against a running stack (mirrors phase-qa tier 2)
 qa-local:

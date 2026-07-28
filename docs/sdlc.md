@@ -150,9 +150,23 @@ request budget, health-gated with curl retries), seed data (`python -m
 app.seed`), then:
 
 - API unit + integration tests (`pytest` with httpx `ASGITransport`)
-- Contract tests (Schemathesis v4 against the OpenAPI schema — fixed `--seed`,
-  bounded `--max-examples`, phases `examples,coverage`; unbounded fuzzing lives
-  in a scheduled non-gating workflow)
+- Contract tests (Schemathesis v4 replaying a committed corpus,
+  `qa/tests/contract/corpus.json` — ≤25 cases per operation — against the live
+  OpenAPI schema; schema-conformance, documented-status, and no-5xx checks,
+  with `positive_data_acceptance`/`negative_data_rejection` excluded by
+  design). There is no generation in this path — no PRNG, no import-order
+  sensitivity — so the verdict is a pure function of the commit: identical
+  requests, run to run. A schema-digest guard (`test_corpus_matches_live_schema`)
+  fails the tier loudly, naming the file and `make contract-refresh`, when the
+  live API and the committed corpus disagree — corpus drift is always a
+  visible, reviewable diff, never a silent change in coverage. Refreshing is a
+  human-run step (`make contract-refresh`), not part of the gate; its output is
+  Hypothesis-generated and best-effort, reviewed as a diff before it becomes
+  the gate's input. Unbounded randomised fuzzing stays non-gating in a
+  scheduled workflow. Standing rule: anything a contract run finds once is
+  pinned as a deterministic test (precedent: the NUL/surrogate cases in
+  `apps/api/tests/test_auth.py` and `test_tasks.py`), not left as a corpus
+  entry — a corpus entry can be regenerated away, a pinned test cannot.
 - UI E2E (`pytest-playwright` through the gateway, tracing/screenshots retained
   on failure)
 
