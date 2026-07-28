@@ -219,6 +219,20 @@ redirects now preserve the query string in `next` (e.g. unauthed `GET
 /?status=todo` → 303 `/login?next=/%3Fstatus%3Dtodo`); `/` and `/new`
 redirects are unchanged.
 
+When the tasks fetch succeeded and the rendered set is empty, the board shows
+exactly one empty-state message. Unfiltered with zero tasks:
+`data-testid="empty-board"` (text `No tasks yet.`) rendered between the filter
+nav and the board, carrying `data-testid="empty-board-new-link"` → `GET /new`.
+Filtered (`?status=<todo|doing|done>`) with no match: `data-testid="empty-filter"`
+(text `Nothing in <status> right now.`) rendered inside that column, after its
+`<h2>`. Never both — a zero-task user on a filtered board sees `empty-filter`
+only. Both are absent from the DOM (not merely hidden) when they do not apply,
+and are suppressed entirely when the tasks fetch failed (`api-error` owns that
+case). Neither carries a role, landmark, `tabindex`, or `autofocus`: the page
+keeps exactly one `banner`, one `main`, and — when the degraded banner is also
+showing — exactly one `status` region. An unrecognised `status` value falls
+back to the full board, so the empty-board rule applies to it.
+
 ## Vendor contract (what WireMock simulates)
 
 `POST /v1/notifications` (header `x-vendor-key: vendor-key`) → 202
