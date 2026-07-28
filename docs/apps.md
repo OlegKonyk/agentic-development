@@ -69,6 +69,12 @@ returned page and `total` describe the filtered set. `total` ignores
 correct `total` — never 404. Out-of-bounds or non-integer `limit`/`offset` →
 422, same validation-error shape as `due_at`/`title` (the `offset` upper bound
 guards the same asyncpg bind-overflow class as the `TaskId` path bound).
+`PATCH /api/tasks/{id}` distinguishes an omitted field from an explicit
+`null`: an explicit `{"due_at": null}` clears the due date (200, response
+`due_at: null`); omitting `due_at` leaves it untouched, exactly as before.
+Explicit `null` on `title`, `description` or `status` stays a no-op — only
+`due_at` is nullable on the row. `reminder_status` is unaffected either way and
+stays read-only.
 Ordering is board-wide urgency, the only order the endpoint offers (no
 ordering/sort query parameter): soonest `due_at` first, tasks with no `due_at`
 after every dated task, ascending task id as tie-break. This is a total order
@@ -172,12 +178,46 @@ are unaffected by the viewer's zone; the page the web receives is already in
 board-wide urgency order (see `GET /api/tasks` above), so this per-column sort
 is a stable re-sort on the same key that only splits the page into columns);
 row actions carry
-task-scoped accessible names, DOM order `Move back <title>` / `Advance
-<title>` / `Delete <title>` (`aria-label="Move back <title>"` / `"Advance
-<title>"` / `"Delete <title>"`), testids and visible text unchanged,
-`GET|POST /new` (adds optional `due-at-input`), advance/delete as v1, `GET
+task-scoped accessible names, DOM order `Edit <title>` / `Move back <title>` /
+`Advance <title>` / `Delete <title>` (`aria-label="Edit <title>"` / `"Move
+back <title>"` / `"Advance <title>"` / `"Delete <title>"`), testids and
+visible text unchanged for the three pre-existing actions,
+`GET|POST /new` (adds optional `due-at-input`), `GET|POST /tasks/{id}/edit`
+(new — see below), advance/delete as v1, `GET
 /healthz`. All forms carry hidden `csrf_token` (session-stored, compared on
 POST; mismatch → 403).
+
+`GET|POST /tasks/{id}/edit` — edit an existing task's title, description and
+due date; status is neither shown nor sent (it only moves via
+`advance`/`move-back`). Each `task-row` carries a new `edit-link`
+(`data-testid="edit-link"`, class `btn-edit`, visible text `Edit`, first
+action in the row) whose href is `edit_url(id, status, page)` — the same
+filter/page carried by the other row actions. `GET` renders `edit.html`
+pre-filled from `GET /api/tasks/{id}`: `title-input`, `description-input`,
+`due-at-input` (in the viewer's time zone, via the `tz` cookie, same as `/new`),
+a `due-at-zone` hint (`Times are in <zone>. Leave empty to remove the due
+date.`), a `submit-edit` button (`Save changes`) and an `edit-cancel` link
+(`Cancel`) back to the originating board URL. Hidden `status`/`page` inputs
+carry the originating board through to `POST`, which redirects (303) back to
+that same filtered/paged board on success. No session → 303
+`/login?next=<edit url>` (query preserved); API 401 on either the `GET` or the
+`POST` → session cleared, 303 `/login` (`next` set when the edit URL carries a
+filter/page). Another user's task id → silent 303 to the caller's own board on
+both `GET` and `POST` (identical to a deleted id — no existence leak, no
+mutation). CSRF-checked first on `POST` (mismatch → 403, nothing fetched or
+mutated).
+`POST` reads the task before writing (`GET /api/tasks/{id}` then, only when
+the due-date field actually changed, includes `due_at` in the `PATCH` body —
+present as `null` when the field was cleared, the converted RFC3339 value when
+changed, or omitted entirely when untouched). This is what lets an already-past
+due date be saved alongside a title/description edit without re-triggering the
+API's future-only validation. `title` and `description` are always sent;
+`status` never is. A 422 from the API re-renders `edit.html` with the typed
+values and the same `INVALID_TITLE_MESSAGE`/`INVALID_INPUT_MESSAGE` posture as
+`/new`; an unparseable `due_at` input or a transport failure re-renders the
+same way (`API_UNAVAILABLE_MESSAGE` for the latter). Every re-render sets
+`tz_sync=False`, exactly as `/new`. No inline editing, no autosave, and no
+JavaScript beyond the existing tz-sync script.
 
 **Viewer time zone.** `due-at-input` on `GET|POST /new` is interpreted in the
 viewer's time zone, not UTC. The zone comes from a `tz` cookie (name `tz`,
@@ -351,6 +391,9 @@ through again, mirroring the `toxiproxy` fixture's recovery gate.
   `make contract-refresh` after an API change; a schema-digest guard fails
   loudly if the corpus drifts from the live schema. Plus an explicit check
   that `GET /api/reminders/health` is documented and 401s unauthenticated.
+  `PATCH /api/tasks/{id}`'s null-clears-`due_at` semantics is a behavior
+  change with no OpenAPI delta (`TaskUpdate.due_at` was already nullable in
+  the schema), so the committed corpus needed no refresh.
 - `tests/resilience/` — vendor faults via WireMock admin (5xx → reminder
   `failed`, recovery after reset) and Toxiproxy matrix: db latency 500ms →
   still 200 (degraded-but-functional stays under the 8s request deadline);
