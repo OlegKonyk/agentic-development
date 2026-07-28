@@ -36,6 +36,13 @@ jobs:
       # Single source for the gateway's test-profile request budget: the boot
       # step and the pre-e2e capacity check must never drift apart.
       GATEWAY_RATE_LIMIT: "600"
+      # Operable without a code change: the cap is a runaway guard, and a
+      # ticket can legitimately outgrow it (docs/sdlc.md triage rule — read
+      # permission_denials first; zero denials with steady progress means the
+      # scope grew, not that the agent is stuck). Set repo variable
+      # QA_MAX_TURNS to raise it for an unusually large surface; unset to
+      # return to the run_agent.sh default.
+      QA_MAX_TURNS: ${{ vars.QA_MAX_TURNS || '' }}
     steps:
       - name: Refuse fork PRs
         if: github.event.pull_request.head.repo.full_name != github.repository
