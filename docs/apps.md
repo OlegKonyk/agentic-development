@@ -232,8 +232,12 @@ asserts no toxics leak between tests.
   keeps exactly one banner/main landmark plus one `status` region with no
   stolen focus.
 - `tests/contract/` — Schemathesis v4 against the API (auth'd via bearer
-  override), bounded + deterministic as v1; plus an explicit check that
-  `GET /api/reminders/health` is documented and 401s unauthenticated.
+  override), replaying a committed corpus (`tests/contract/corpus.json`, ≤25
+  cases per operation) instead of generating on the fly — no PRNG in the
+  gating path, so the verdict is a pure function of the commit. Refresh with
+  `make contract-refresh` after an API change; a schema-digest guard fails
+  loudly if the corpus drifts from the live schema. Plus an explicit check
+  that `GET /api/reminders/health` is documented and 401s unauthenticated.
 - `tests/resilience/` — vendor faults via WireMock admin (5xx → reminder
   `failed`, recovery after reset) and Toxiproxy matrix: db latency 500ms →
   still 200 (degraded-but-functional stays under the 8s request deadline);
