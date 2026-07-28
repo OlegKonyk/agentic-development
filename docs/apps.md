@@ -147,11 +147,26 @@ only when the task has a `due_at`; `reminder-badge` when status ≠ none; new
 (absent from the DOM otherwise, not merely hidden); within each column, rows
 are ordered by soonest `due_at` first, undated tasks last, ascending task id
 as tie-break — `GET /api/tasks` ordering and payload are unchanged, this is a
-web-layer-only concern); row actions carry task-scoped accessible names
-(`aria-label="Advance <title>"` / `"Delete <title>"`), testids and visible
-text unchanged, `GET|POST /new` (adds optional `due-at-input`),
-advance/delete as v1, `GET /healthz`. All forms carry hidden `csrf_token`
-(session-stored, compared on POST; mismatch → 403).
+web-layer-only concern); row actions carry task-scoped accessible names, DOM
+order `Move back <title>` / `Advance <title>` / `Delete <title>`
+(`aria-label="Move back <title>"` / `"Advance <title>"` / `"Delete <title>"`),
+testids and visible text unchanged, `GET|POST /new` (adds optional
+`due-at-input`), advance/delete as v1, `GET /healthz`. All forms carry hidden
+`csrf_token` (session-stored, compared on POST; mismatch → 403).
+
+`POST /tasks/{id}/move-back` — moves a task one column back (`done → doing`,
+`doing → todo`; `todo` is the floor, submitting it on a `todo` task is a
+no-op). Row action `data-testid="move-back-btn"`, visible text `Move back`,
+CSS class `btn-back`, rendered as the first action on every row in every
+column, alongside `advance-btn` and `delete-btn`. CSRF-checked (mismatch →
+403, nothing mutated); no session → 303 `/login?next=...`; API 401 mid-
+session → session cleared, 303 `/login`; another user's task id → silent
+no-op, 303 back to the caller's own board (no existence leak). Carries the
+same hidden `status`/`page` inputs as advance/delete and redirects 303 back
+to the same filtered/paged board. Internally issues `GET /api/tasks/{id}`
+then, only when the mapped status differs, `PATCH /api/tasks/{id}` with body
+exactly `{"status": ...}` — no other field is sent, so `due_at` and
+`reminder_status` are never touched by this action.
 
 `GET /` also accepts an optional `status` query param (`todo|doing|done`);
 any other value, including absent or empty, renders the full three-column
@@ -175,9 +190,9 @@ single `aria-current="page"` stays on the active status-filter link. Pager
 URLs preserve the active filter (`/?status=todo&page=2`); page-1 URLs omit
 `page` entirely, so `/` and `/?status=todo` stay byte-identical to today.
 `task-count` is unchanged in meaning: the user's grand total across all
-statuses, independent of page and filter. Each row's advance/delete form
-carries a hidden `name="page"` input; both actions redirect back to the same
-page and filter. `GET /` fetches `/api/reminders/health` (dedicated 2s timeout)
+statuses, independent of page and filter. Each row's move-back/advance/delete
+form carries a hidden `name="page"` input; all three actions redirect back to
+the same page and filter. `GET /` fetches `/api/reminders/health` (dedicated 2s timeout)
 after the tasks fetch — skipped when the tasks fetch already failed — and
 renders a degraded-service banner (`data-testid="reminder-degraded-banner"`,
 `role="status"`, no `tabindex`/`autofocus`) as the first element of the board
@@ -197,9 +212,9 @@ second, when the degraded banner is present) is a filter nav
 which exactly one carries `aria-current="page"` (plus a cosmetic `.active`
 class), `filter-all` when unfiltered or the status value is unrecognised.
 `task-count` keeps showing the user's total across all statuses regardless of
-the active filter. Each row's advance/delete form carries a hidden
-`name="status"` input holding the active filter, so both actions redirect
-back to the same filtered (or unfiltered) board. Protected-page auth
+the active filter. Each row's move-back/advance/delete form carries a hidden
+`name="status"` input holding the active filter, so all three actions
+redirect back to the same filtered (or unfiltered) board. Protected-page auth
 redirects now preserve the query string in `next` (e.g. unauthed `GET
 /?status=todo` → 303 `/login?next=/%3Fstatus%3Dtodo`); `/` and `/new`
 redirects are unchanged.

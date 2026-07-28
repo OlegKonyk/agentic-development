@@ -75,6 +75,21 @@ def test_advance_from_second_page_returns_to_second_page(
     expect(alice_page).to_have_url(re.compile(r"\?page=2$"))
 
 
+def test_move_back_returns_to_same_page_and_filter(alice_api: ApiClient, alice_page: Page) -> None:
+    _create_tasks(alice_api, 21, prefix="Filler")
+    alice_api.create_task("Move back on page two")
+    alice_page.goto("/?status=todo&page=2")
+    row = alice_page.get_by_test_id("task-row").filter(has_text="Move back on page two")
+    expect(row).to_be_visible()
+    pager_status = alice_page.get_by_test_id("pager-status").inner_text()
+
+    row.get_by_test_id("move-back-btn").click()
+
+    expect(alice_page).to_have_url(re.compile(r"status=todo.*page=2|page=2.*status=todo"))
+    expect(alice_page.get_by_test_id("pager-status")).to_have_text(pager_status)
+    assert alice_page.locator('[aria-current="page"]').count() == 1
+
+
 def test_delete_from_second_page_returns_to_second_page(
     alice_api: ApiClient, alice_page: Page
 ) -> None:
