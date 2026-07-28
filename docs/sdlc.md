@@ -261,6 +261,10 @@ claude -p "<skill invocation + context>" \
   and loaded via `--plugin-dir`, so the same mechanism works in bare and
   non-bare mode. Hooks are NOT used for CI enforcement (they don't run in bare
   mode; enforcement lives in YAML + permission flags).
+- Both dev skills verify with `ruff check` **and** `ruff format --check`: `ci`
+  runs both and tier-1 QA runs neither, so a formatting-only miss earns a
+  `qa-passed` label and a red `ci` — the merge is correctly blocked, but the
+  signal arrives from the wrong gate.
 - Phase profiles are asserted, not remembered: `scripts/tests/test_agent_profiles.py`
   fails the build if any phase re-introduces an arg-scoped `Bash(...)`
   allowlist, if an analysis phase (product/design/retro) gains a shell, or if
