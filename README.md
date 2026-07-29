@@ -29,6 +29,40 @@ flowchart LR
     F --> G[🚀 deploy<br/>ticket closes]
 ```
 
+## Start here
+
+If you have pulled this repo to learn from it, read in this order — the first
+two items are printable and need no tooling:
+
+1. **[`docs/handbook/01-lab-review.pdf`](docs/handbook/01-lab-review.pdf)** —
+   what was built and what it found. Three rounds of measured results, the
+   six-seat operating model, and the findings ledger. 11 pages.
+2. **[`docs/handbook/02-system-map.pdf`](docs/handbook/02-system-map.pdf)** —
+   how the machine works: every trigger, every guard, and *the incident behind
+   each one*. This is the transferable part; almost nothing here was designed
+   up front. 8 pages.
+3. **[`docs/sdlc.md`](docs/sdlc.md)** — the binding spec the workflows
+   implement. If the code and this file disagree, the file wins.
+4. **[`docs/lab-charter.md`](docs/lab-charter.md)** — the experiment method:
+   how rounds are run, what is measured, and what the numbers may not claim.
+5. **[`docs/learning-log.md`](docs/learning-log.md)** — the raw chronological
+   record. Every guard in the system traces back to an entry here.
+
+Then, depending on what you came for: **`docs/playbooks/`** for how each of the
+six roles changes; **`docs/case/`** for the round briefs and the frozen cost
+baselines; **`.github/workflows/`** + **`scripts/`** for the mechanism itself.
+
+The two ideas most worth stealing, if you read nothing else:
+
+- **Deterministic orchestration, AI-filled content.** GitHub Actions and shell
+  own every state transition. The model only produces content inside a phase,
+  always as schema-validated JSON. No model output is ever parsed for control
+  flow.
+- **Prose is not a boundary.** Any rule that lives only in an agent's
+  instructions will eventually be walked through. If a rule matters, it needs a
+  deterministic step that fails the build — see the three-layer privileged-path
+  boundary in the system map, where only the third layer holds.
+
 ## What's here
 
 | Path | What |
@@ -42,6 +76,9 @@ flowchart LR
 | `gateway/` | Cloudflare Worker gateway (Wrangler v4): API-key auth, rate limiting, routing, request IDs |
 | `qa/` | Deterministic suites: Playwright E2E + Schemathesis contract tests |
 | `watcher/` | Phase 2: an Agent-SDK "ticket watcher" service — the same state machine, local runtime |
+| `docs/handbook/` | Printable overviews (PDF + offline HTML) and `scripts/render_handbook.py` to rebuild them |
+| `docs/case/` | Round briefs, the frozen metrics baselines, and the cited bibliography |
+| `docs/playbooks/` | One per seat: product manager, dev manager, developer, infra, QA |
 
 ## The QA agent (the centerpiece)
 

@@ -1,0 +1,558 @@
+<title>SDLC Lab — Review</title>
+<style>
+  :root {
+    color-scheme: light;
+    --paper: #f9f9f7;
+    --surface: #fcfcfb;
+    --ink: #0b0b0b;
+    --ink-2: #52514e;
+    --muted: #898781;
+    --hairline: #e1e0d9;
+    --baseline: #c3c2b7;
+    --accent: #2a78d6;
+    --accent-soft: rgba(42, 120, 214, 0.09);
+    --good: #0ca30c;
+    --good-text: #006300;
+    --warning: #fab219;
+    --serious: #ec835a;
+    --critical: #d03b3b;
+    --ring: rgba(11, 11, 11, 0.10);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --paper: #0d0d0d;
+      --surface: #1a1a19;
+      --ink: #ffffff;
+      --ink-2: #c3c2b7;
+      --muted: #898781;
+      --hairline: #2c2c2a;
+      --baseline: #383835;
+      --accent: #3987e5;
+      --accent-soft: rgba(57, 135, 229, 0.14);
+      --good-text: #0ca30c;
+      --ring: rgba(255, 255, 255, 0.10);
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --paper: #0d0d0d;
+    --surface: #1a1a19;
+    --ink: #ffffff;
+    --ink-2: #c3c2b7;
+    --muted: #898781;
+    --hairline: #2c2c2a;
+    --baseline: #383835;
+    --accent: #3987e5;
+    --accent-soft: rgba(57, 135, 229, 0.14);
+    --good-text: #0ca30c;
+    --ring: rgba(255, 255, 255, 0.10);
+  }
+  :root[data-theme="light"] {
+    color-scheme: light;
+    --paper: #f9f9f7;
+    --surface: #fcfcfb;
+    --ink: #0b0b0b;
+    --ink-2: #52514e;
+    --muted: #898781;
+    --hairline: #e1e0d9;
+    --baseline: #c3c2b7;
+    --accent: #2a78d6;
+    --accent-soft: rgba(42, 120, 214, 0.09);
+    --good-text: #006300;
+    --ring: rgba(11, 11, 11, 0.10);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font: 400 15.5px/1.62 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 48px 24px 96px; }
+  .prose { max-width: 74ch; }
+
+  .serif { font-family: "Iowan Old Style", "Palatino Linotype", Charter, Georgia, serif; }
+  .mono { font-family: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace; }
+
+  a { color: var(--accent); text-decoration: none; }
+  a:hover, a:focus-visible { text-decoration: underline; }
+  a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+
+  header.hero { border-bottom: 1px solid var(--hairline); padding-bottom: 28px; margin-bottom: 40px; }
+  .eyebrow {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 11.5px; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--accent); margin: 0 0 14px;
+  }
+  h1 {
+    font-family: "Iowan Old Style", "Palatino Linotype", Charter, Georgia, serif;
+    font-weight: 600; font-size: clamp(30px, 5vw, 42px); line-height: 1.12;
+    letter-spacing: -0.01em; margin: 0 0 14px; text-wrap: balance;
+  }
+  .dek { font-size: 17.5px; color: var(--ink-2); max-width: 62ch; margin: 0 0 20px; text-wrap: pretty; }
+  .dek em { color: var(--ink); font-style: italic; }
+
+  .meta-row { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 11.5px; padding: 3px 10px; border-radius: 999px;
+    border: 1px solid var(--hairline); color: var(--ink-2); background: var(--surface);
+    white-space: nowrap;
+  }
+  .chip b { color: var(--ink); font-weight: 600; }
+
+  section { margin: 52px 0 0; }
+  h2 {
+    font-family: "Iowan Old Style", "Palatino Linotype", Charter, Georgia, serif;
+    font-weight: 600; font-size: 25px; line-height: 1.2; margin: 10px 0 16px;
+    letter-spacing: -0.005em; text-wrap: balance;
+  }
+  h3 { font-size: 15.5px; font-weight: 650; margin: 26px 0 8px; }
+  p { margin: 0 0 14px; text-wrap: pretty; }
+  .lede { font-size: 16.5px; }
+  small, .small { font-size: 13px; color: var(--ink-2); }
+
+  .plate {
+    background: var(--surface); border: 1px solid var(--hairline);
+    border-radius: 10px; padding: 20px 22px; margin: 18px 0;
+  }
+  .scroll-x { overflow-x: auto; }
+
+  /* verdict pills — status colors never travel without a glyph + word */
+  .pill {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 11px; font-weight: 600; padding: 2px 9px; border-radius: 999px;
+    white-space: nowrap; border: 1px solid transparent;
+  }
+  .pill::before { font-size: 10px; }
+  .pill.pass { color: var(--good-text); border-color: color-mix(in srgb, var(--good) 45%, transparent); background: color-mix(in srgb, var(--good) 10%, transparent); }
+  .pill.pass::before { content: "✓"; }
+  .pill.fail { color: var(--critical); border-color: color-mix(in srgb, var(--critical) 45%, transparent); background: color-mix(in srgb, var(--critical) 9%, transparent); }
+  .pill.fail::before { content: "✕"; }
+  .pill.park { color: color-mix(in srgb, var(--serious) 75%, var(--ink)); border-color: color-mix(in srgb, var(--serious) 55%, transparent); background: color-mix(in srgb, var(--serious) 11%, transparent); }
+  .pill.park::before { content: "⏸"; }
+  .pill.queued { color: var(--ink-2); border-color: var(--hairline); background: transparent; }
+  .pill.queued::before { content: "◷"; }
+  .pill.landed { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, transparent); background: var(--accent-soft); }
+  .pill.landed::before { content: "↳"; }
+
+  code, .k {
+    font-family: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
+    font-size: 0.86em; background: var(--accent-soft); color: var(--ink);
+    padding: 1px 5px; border-radius: 4px;
+  }
+
+  /* tables */
+  table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+  th {
+    text-align: left; font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 10.5px; letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--muted); font-weight: 600; padding: 8px 14px 8px 0;
+    border-bottom: 1px solid var(--baseline);
+  }
+  td { padding: 9px 14px 9px 0; border-bottom: 1px solid var(--hairline); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; padding-right: 0; padding-left: 14px; }
+  td .mono { font-size: 12px; }
+
+  /* stat tiles */
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 18px 0; }
+  .tile { background: var(--surface); border: 1px solid var(--hairline); border-radius: 10px; padding: 14px 16px 12px; }
+  .tile .v { font-size: 27px; font-weight: 650; line-height: 1.1; letter-spacing: -0.01em; }
+  .tile .v small { font-size: 15px; font-weight: 500; color: var(--ink-2); }
+  .tile .l { font-size: 11.5px; color: var(--ink-2); margin-top: 5px; line-height: 1.35; }
+
+  /* timeline — a real sequence, so it is typed and dated */
+  .timeline { list-style: none; margin: 18px 0 0; padding: 0; border-left: 2px solid var(--hairline); }
+  .timeline li { position: relative; padding: 0 0 22px 22px; }
+  .timeline li::before {
+    content: ""; position: absolute; left: -6px; top: 7px; width: 8px; height: 8px;
+    border-radius: 50%; background: var(--accent); border: 2px solid var(--paper);
+  }
+  .timeline .when {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 11px; letter-spacing: 0.08em; color: var(--muted); text-transform: uppercase;
+  }
+  .timeline .what { font-weight: 650; margin: 2px 0 3px; }
+  .timeline p { font-size: 14px; color: var(--ink-2); margin: 0; max-width: 68ch; }
+
+  /* findings ledger */
+  .ledger { counter-reset: finding; list-style: none; margin: 0; padding: 0; }
+  .ledger > li { border-top: 1px solid var(--hairline); padding: 16px 0 14px; }
+  .ledger > li:first-child { border-top: none; padding-top: 4px; }
+  .ledger .f-title { font-weight: 650; margin: 0 0 5px; }
+  .ledger p { font-size: 14.5px; color: var(--ink-2); margin: 0; max-width: 72ch; }
+  .ledger p b { color: var(--ink); }
+
+  /* chart */
+  .fig { background: var(--surface); border: 1px solid var(--hairline); border-radius: 10px; padding: 20px 22px 16px; margin: 18px 0; }
+  .fig h4 { margin: 0 0 2px; font-size: 14.5px; font-weight: 650; }
+  .fig .sub { font-size: 12.5px; color: var(--ink-2); margin: 0 0 16px; }
+  .row { display: grid; grid-template-columns: 42px 1fr; gap: 12px; align-items: center; margin: 13px 0; }
+  .row .tick { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; color: var(--ink-2); text-align: right; }
+  .track { position: relative; height: 26px; }
+  .band {
+    position: absolute; top: 0; height: 26px; border-radius: 4px;
+    background: var(--accent-soft); border: 1px dashed color-mix(in srgb, var(--accent) 35%, transparent);
+  }
+  .bar {
+    position: absolute; top: 4px; height: 18px; border-radius: 0 4px 4px 0;
+    background: var(--accent); min-width: 2px;
+  }
+  .bar-label {
+    position: absolute; top: 50%; transform: translateY(-50%);
+    font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; font-weight: 600;
+    color: var(--ink); white-space: nowrap;
+  }
+  .axis { display: grid; grid-template-columns: 42px 1fr; gap: 12px; margin-top: 6px; }
+  .axis .scale {
+    position: relative; border-top: 1px solid var(--baseline); height: 18px;
+    font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 10.5px; color: var(--muted);
+  }
+  .axis .scale span { position: absolute; top: 3px; transform: translateX(-50%); }
+  .fig .keyline { display: flex; gap: 18px; margin-top: 10px; font-size: 12px; color: var(--ink-2); flex-wrap: wrap; }
+  .fig .keyline .swatch { display: inline-block; width: 14px; height: 10px; border-radius: 3px; vertical-align: -1px; margin-right: 5px; }
+  .note-inline { font-size: 12px; color: var(--ink-2); }
+
+  .tip {
+    position: fixed; z-index: 10; pointer-events: none; opacity: 0;
+    background: var(--ink); color: var(--paper);
+    font: 500 12px/1.45 system-ui, sans-serif;
+    padding: 7px 10px; border-radius: 7px; max-width: 260px;
+    transition: opacity 0.12s;
+  }
+  @media (prefers-reduced-motion: reduce) { .tip { transition: none; } }
+
+  /* two-col cards for guardrails */
+  .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 10px; margin: 18px 0; }
+  .cardlet { background: var(--surface); border: 1px solid var(--hairline); border-radius: 10px; padding: 14px 16px; }
+  .cardlet .t { font-weight: 650; font-size: 13.5px; margin-bottom: 4px; }
+  .cardlet p { font-size: 13px; color: var(--ink-2); margin: 0; }
+
+  .callout {
+    border-left: 3px solid var(--accent); background: var(--accent-soft);
+    border-radius: 0 8px 8px 0; padding: 13px 16px; margin: 18px 0; font-size: 14.5px;
+  }
+  .callout.watch { border-left-color: var(--serious); background: color-mix(in srgb, var(--serious) 8%, transparent); }
+
+  footer { margin-top: 64px; border-top: 1px solid var(--hairline); padding-top: 20px; font-size: 13px; color: var(--ink-2); }
+  footer .docmap { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 4px 24px; margin-top: 10px; }
+
+  .flow { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 11px; line-height: 1.45; white-space: pre; overflow-x: auto;
+    margin: 0; color: var(--ink-2); }
+</style>
+
+<div class="wrap">
+
+<header class="hero">
+  <p class="eyebrow">agentic-development · lab review · 2026-07-24 → 28</p>
+  <h1>The SDLC Experimentation Lab</h1>
+  <p class="dek">One question drives the repo: <em>what software development life cycle can a six-person team plus current AI tools actually run?</em> This is the review of everything built so far — the apparatus, the method, two closed rounds, and the numbers.</p>
+  <div class="meta-row">
+    <span class="chip"><b>10</b>&nbsp;tickets idea→deployed</span>
+    <span class="chip"><b>24</b>&nbsp;PRs merged</span>
+    <span class="chip"><b>2</b>&nbsp;rounds closed + readiness batch</span>
+    <span class="chip"><b>$21.72</b>&nbsp;Round 1, fully measured</span>
+    <span class="chip"><b>0</b>&nbsp;false passes in-cycle</span>
+    <span class="chip"><a href="https://github.com/OlegKonyk/agentic-development">github.com/OlegKonyk/agentic-development</a></span>
+  </div>
+</header>
+
+<section class="prose">
+  <p class="eyebrow">§ What this is</p>
+  <h2>A pipeline that ships, measures itself, and critiques itself</h2>
+  <p class="lede">The lab has three parts. The <b>apparatus</b> is a label-driven GitHub Actions state machine where Claude agents fill each phase — spec, design, implementation, QA verdict, rework, retrospective — and humans hold exactly the gates worth holding. The <b>specimen</b> is Taskboard: a deliberately boring task app on deliberately real architecture (Postgres, async jobs, signed webhooks, a programmable vendor, fault injection), so QA has genuine failure modes to hunt. The <b>method</b> is a charter that forces predefined ticket ledgers, forecast-vs-measured accounting, and a failure ledger with the same prominence as wins.</p>
+  <p>Nothing in the pipeline lets a model choose a state transition. Agents produce schema-validated content; deterministic YAML and scripts own every label, status, and merge gate. That split — <i>predictable orchestration, AI-filled content</i> — is the design thesis the whole experiment tests.</p>
+</section>
+
+<section>
+  <p class="eyebrow">§ The apparatus</p>
+  <h2 class="prose">The state machine</h2>
+  <div class="plate scroll-x">
+<pre class="flow">stage:idea ──(human adds stage:spec)──▶ product agent
+                                          │
+                                          ▼
+                                     design agent  ──(final AC-1..n)
+                                          │
+                                          ▼
+                                      dev agent  ──▶ opens PR, labels qa-ready
+                                          │
+                                          ▼
+                          ┌────────▶  QA agent + tier-1 suites
+                          │               │
+                    (verdict: fail)  (verdict: pass)
+                          │               │
+                      rework agent        ▼
+                          │          qa-passed ──▶ HUMAN MERGES ──▶ deploy
+                          └───────────────┘                            │
+                                                                       ▼
+                                                          stage:done + deployed
+                                                                       │
+                                                                       ▼
+                                                       retro agent ──▶ stage:idea proposals
+                                                                       (human gate)
+
+  any phase, unrecoverable ─────────────────────────────▶ needs-human (terminal)</pre>
+  </div>
+  <div class="grid2">
+    <div class="cardlet"><div class="t">Evidence-gated merges</div><p>Branch protection requires <code>ci</code> and <code>qa/agent-verdict</code> on the exact head SHA. New code must earn a new verdict; a push after QA re-blocks the merge by construction.</p></div>
+    <div class="cardlet"><div class="t">The gate outranks the agent</div><p>Tier-1 suite red always refuses the pass, even when the QA agent argues the failure is out of scope. Verdicts without reproduction steps are downgraded, never trusted.</p></div>
+    <div class="cardlet"><div class="t">Three-layer privileged boundary</div><p>Agent charters, pipeline glue, and workflows are human-only — enforced by deny rules, a deterministic diff-and-dirty-tree guard before every agent push, and credential-less agent steps. Built after a rework agent walked through a dead deny rule and edited the QA charter.</p></div>
+    <div class="cardlet"><div class="t">Runaway and staleness guards</div><p>Per-phase turn and dollar caps, loop guards on every label cycle, and a freshness assert that refuses to spend a QA run on a stale merge ref (learned at a cost of $1.80).</p></div>
+    <div class="cardlet"><div class="t">Full-spend telemetry</div><p>Every phase posts its cost line to the ticket (<span class="k">Agent phase `qa` — 90 turns, ~$2.67</span>), so per-ticket economics are computed from GitHub events, not recollection.</p></div>
+    <div class="cardlet"><div class="t">The retro loop, gated</div><p>Every deployed ticket triggers a read-only retro agent: it drafts the learning-log entry and files ≤3 evidence-backed proposals. They enter the pipeline only when a human applies the entry label. The loop cannot close itself.</p></div>
+  </div>
+</section>
+
+<section>
+  <p class="eyebrow">§ The seats</p>
+  <h2 class="prose">Six people, six changed jobs</h2>
+  <p class="prose">Each seat has a playbook (<code>docs/playbooks/</code>) naming its touchpoints, its metrics, and what it must never delegate. Decision authority is single-owner by construction — the review found three seats each believing the same decision was exclusively theirs, and fixed it.</p>
+  <div class="plate scroll-x">
+    <table>
+      <thead><tr><th>Seat</th><th>Owns</th><th>Never delegates</th></tr></thead>
+      <tbody>
+        <tr><td><b>Product manager</b></td><td>The spec as executable artifact; the entry gate for product tickets (<span class="k">stage:spec</span> starts agent spend)</td><td>Answers to agent open questions; the final-AC review at design time</td></tr>
+        <tr><td><b>Dev manager</b></td><td>Merge authority over machine-verified state; cap and break-glass decisions; <span class="k">needs-human</span> resolution</td><td>The merge, the bypass, reading QA evidence before shipping</td></tr>
+        <tr><td><b>Developers ×2</b></td><td>Direction and review — agents draft every change; devs review with fresh eyes and route unfixable findings</td><td>Fresh-eyes review of agent diffs; reproducing findings before acting</td></tr>
+        <tr><td><b>Infra engineer</b></td><td>The paved road: workflows, guards, agent identities and least-privilege tokens, environments</td><td>Authoring the enforcement code that constrains agents; verifying it against its real runtime</td></tr>
+        <tr><td><b>QA engineer</b> <span class="note-inline">(lab owner)</span></td><td>The verification signal agents iterate against: tier-1 suites, the exploratory charter, gate rules, evidence formats</td><td>Adversarial review of agent-written tests; charter and gate changes</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="prose">
+  <p class="eyebrow">§ The record</p>
+  <h2>Four days, in order</h2>
+  <ul class="timeline">
+    <li>
+      <span class="when">Jul 24 · proof</span>
+      <div class="what">The pipeline ships real work unattended</div>
+      <p>Ticket #1 flowed spec→design→dev→QA without a human touch. The reality-grade platform (#3) survived seven agent-QA cycles that found three real defects 131 deterministic tests and human review both missed. A bug ticket (#6) ran the loop fully autonomously in 17 minutes.</p>
+    </li>
+    <li>
+      <span class="when">Jul 25 · hardening</span>
+      <div class="what">Calibration tickets break the pipeline in instructive ways — and it gets fixed</div>
+      <p>The rework agent edited the QA agent's own charter through a dead permission rule; a QA run was spent testing a stale merge ref; a "surrogate 500" turned out to be three distinct bugs. Result: PRs #15–#18 — the three-layer privileged boundary, the freshness assert, and the NUL/surrogate 422 fix, each adversarially reviewed before merge.</p>
+    </li>
+    <li>
+      <span class="when">Jul 26 · founding</span>
+      <div class="what">The repo becomes the lab — Round 0</div>
+      <p>Charter, five playbooks, the retro phase, metrics tooling, and a frozen baseline from the five pre-lab tickets (PR #19). The review that shipped it corrected the lab's own headline claim: the gate's escape rate is 1/5 at baseline, not zero. Per-phase cost telemetry landed the same day as the lab's first self-filed improvement (#20 → PR #21).</p>
+    </li>
+    <li>
+      <span class="when">Jul 26 · round 1</span>
+      <div class="what">Three tickets through the full pipeline, every seat exercised</div>
+      <p>#4 board filter, #7 degraded-delivery banner (verified under live fault injection), #8 pagination — all merged through the honest gate, all deployed. One environment defect surfaced and was root-caused twice by the QA agent (gateway rate budget, fixed as #25). Four retro runs filed nine evidence-backed proposals; two were accepted and landed at round close.</p>
+    </li>
+      <li>
+      <span class="when">Jul 27–28 · readiness</span>
+      <div class="what">Five accepted improvements land — and the pipeline turns up two defects in itself</div>
+      <p>The repeat-failure guard, capacity precheck, evidence rule, blocking-questions gate and retro dedupe shipped with 20 pinned tests now running in CI. En route: the dev phase was found to still carry the arg-scoped sandbox that PR #10 had fixed for QA alone, and dev-phase cost telemetry was discovered never to have worked — a silent 403 behind <code>|| true</code>. Both fixed. Ticket #36 then closed the contract tier's non-determinism by removing generation from the gating path entirely.</p>
+    </li>
+    <li>
+      <span class="when">Jul 28 · backlog clear</span>
+      <div class="what">The last open proposal ships, and the loop closes on itself</div>
+      <p>Ticket #31 gave QA the fault-injection lever it had asked for after being unable to prove an acceptance criterion black-box on #7 — <b>0.43 h, zero rework, zero parks, one human action</b> (the entry-gate label), and the first ticket in the lab's history measured with complete per-phase cost telemetry. Every retro proposal ever filed is now resolved, and the permission model that cost two phases a full run is an asserted invariant rather than a remembered lesson.</p>
+    </li>
+  </ul>
+</section>
+
+<section>
+  <p class="eyebrow">§ Round 1, measured</p>
+  <h2 class="prose">Forecast difficulty inverted measured cost</h2>
+  <p class="prose">The ledger and forecasts were committed before any ticket ran. The "trivial" control case cost 2.6× the "hardest" ticket — because it ran first into a latent environment defect. Feature complexity predicted almost nothing; environment health predicted everything.</p>
+
+  <div class="tiles">
+    <div class="tile"><div class="v">$21.72</div><div class="l">total agent spend, all phases measured</div></div>
+    <div class="tile"><div class="v">1.88<small>&thinsp;h</small></div><div class="l">pipeline wall clock (forecast ≤7 h)</div></div>
+    <div class="tile"><div class="v">584</div><div class="l">agent turns across 14 phase runs</div></div>
+    <div class="tile"><div class="v">2</div><div class="l">unplanned parks — both the same environment defect</div></div>
+    <div class="tile"><div class="v">2/3</div><div class="l">tickets passed QA first-run</div></div>
+    <div class="tile"><div class="v">0</div><div class="l">product defects found in shipped features</div></div>
+  </div>
+
+  <div class="fig" id="costfig">
+    <h4>Agent cost per ticket — measured against the predefined forecast band</h4>
+    <p class="sub">Round 1, USD per ticket across all phases. Hover a bar for the ticket's story.</p>
+    <div class="row">
+      <div class="tick">#4</div>
+      <div class="track" data-tip="#4 Filter the board (forecast: the easy control case, $4–6). Measured $11.12, 326 turns: 3 QA runs and 2 correct no-op rework parks, all caused by the e2e suite outgrowing the gateway's fixed rate budget. Zero product defects; 14/14 ACs verified in every run.">
+        <div class="band" style="left:33.3%; width:16.7%"></div>
+        <div class="bar" style="width:92.7%"></div>
+        <div class="bar-label" style="left:94%">$11.12</div>
+      </div>
+    </div>
+    <div class="row">
+      <div class="tick">#7</div>
+      <div class="track" data-tip="#7 Degraded-reminder banner (forecast $6–9, the fault-injection risk case). Measured $5.48, 136 turns: first-pass qa-passed, 11/11 ACs including live WireMock/Toxiproxy fault injection, migration + new endpoint + banner in one pass.">
+        <div class="band" style="left:50%; width:25%"></div>
+        <div class="bar" style="width:45.7%"></div>
+        <div class="bar-label" style="left:47.5%">$5.48</div>
+      </div>
+    </div>
+    <div class="row">
+      <div class="tick">#8</div>
+      <div class="track" data-tip="#8 Pagination (forecast $7–11, rated hardest: API contract + UI + tests). Measured $4.36, 102 turns: first-pass qa-passed, 16/16 ACs. The round's one PM↔design disagreement (envelope vs header) was resolved by the documented design-wins rule.">
+        <div class="band" style="left:58.3%; width:33.4%"></div>
+        <div class="bar" style="width:36.3%"></div>
+        <div class="bar-label" style="left:38%">$4.36</div>
+      </div>
+    </div>
+    <div class="axis"><div></div><div class="scale">
+      <span style="left:0%">0</span><span style="left:25%">$3</span><span style="left:50%">$6</span><span style="left:75%">$9</span><span style="left:100%">$12</span>
+    </div></div>
+    <div class="keyline">
+      <span><span class="swatch" style="background:var(--accent)"></span>measured spend</span>
+      <span><span class="swatch" style="background:var(--accent-soft); border:1px dashed var(--accent)"></span>forecast band (predefined)</span>
+    </div>
+  </div>
+
+  <div class="plate scroll-x">
+    <table>
+      <thead><tr>
+        <th>Ticket</th><th>Verdict trail</th><th class="num">Lead</th><th class="num">Turns</th><th class="num">Cost</th><th class="num">Rework</th><th class="num">Parks</th>
+      </tr></thead>
+      <tbody>
+        <tr>
+          <td><b>#4</b> Filter the board<br><span class="note-inline">the control case</span></td>
+          <td><span class="pill fail">qa-failed</span> <span class="pill fail">qa-failed</span> <span class="pill pass">qa-passed</span></td>
+          <td class="num">0.85 h</td><td class="num">326</td><td class="num">$11.12</td><td class="num">2</td><td class="num">2</td>
+        </tr>
+        <tr>
+          <td><b>#7</b> Degraded banner<br><span class="note-inline">fault injection</span></td>
+          <td><span class="pill pass">qa-passed</span></td>
+          <td class="num">0.52 h</td><td class="num">136</td><td class="num">$5.48</td><td class="num">0</td><td class="num">0</td>
+        </tr>
+        <tr>
+          <td><b>#8</b> Pagination<br><span class="note-inline">multi-layer, rated hardest</span></td>
+          <td><span class="pill pass">qa-passed</span></td>
+          <td class="num">0.51 h</td><td class="num">102</td><td class="num">$4.36</td><td class="num">0</td><td class="num">0</td>
+        </tr>
+        <tr>
+          <td><b>#20</b> Cost telemetry<br><span class="note-inline">orchestrator lane</span></td>
+          <td><span class="pill landed">bypass + CI</span></td>
+          <td class="num">14 min</td><td class="num">20</td><td class="num">$0.76</td><td class="num">0</td><td class="num">0</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="small prose">Round 0 baseline for comparison — five pre-lab tickets: 927 turns, $27.64 with only QA phases counted (the undercount is documented and was itself the lab's first accepted improvement). Full definitions in <code>docs/lab-charter.md</code>; regenerate any number with <code>uv run python scripts/lab_metrics.py</code>.</p>
+</section>
+
+<section class="prose">
+  <p class="eyebrow">§ Findings ledger</p>
+  <h2>What the lab actually learned</h2>
+  <ol class="ledger">
+    <li>
+      <div class="f-title">Environment, not feature complexity, drove all cost variance</div>
+      <p>The e2e suite grew past the gateway's fixed rate budget and failed an unrelated test in two consecutive QA runs. Every layer behaved correctly — the QA agent root-caused it identically twice, rework correctly refused to "fix" a flake in app code, the gate refused honestly — <b>and the system still spent ~$5.60 learning one fact</b>, because nothing could say "this failure class is not rework-fixable." Proposals #26/#28 exist to close that.</p>
+    </li>
+    <li>
+      <div class="f-title">The gate has never false-passed in-cycle — and the honest escape rate is 1/5</div>
+      <p>Across every logged QA cycle the deterministic verdict layer has never emitted a false pass. One defect <b>did</b> escape a gate-passed merge (a NUL-byte 500 shipped inside ticket #3 and surfaced only when a later ticket's contract fuzzing happened to generate the input). The lab's own review caught the "zero" claim and corrected it — the metric reads 1/5 at baseline, stated everywhere. <b>The cause is now closed by construction:</b> ticket #36 removed random generation from the gating path — the contract tier replays a version-controlled corpus, and generation became a human-run refresh producing a reviewable diff.</p>
+    </li>
+    <li>
+      <div class="f-title">The design-wins rule survived a real disagreement</div>
+      <p>On #8 the PM called array-plus-header; design argued the envelope and out-reasoned the PM; the documented authority rule resolved it with no human override. The caveat is real too: the product→design transition never waits for PM answers, so alignment on the other two tickets was timing luck, not process guarantee.</p>
+    </li>
+    <li>
+      <div class="f-title">Prompt-level boundaries are not boundaries</div>
+      <p>A rework agent once edited the QA agent's own charter because every <code>Edit(//ci/claude/**)</code> deny rule was dead — a path-syntax bug — and only one skill's prose forbade the path. The fix is layered and verified: working deny rules, a deterministic diff-and-dirty-tree guard at push time, credential-less agent steps. <b>Enforcement that exists only in prose is a suggestion.</b></p>
+    </li>
+    <li>
+      <div class="f-title">Verify enforcement code against the environment it runs in</div>
+      <p>The merge-ref freshness assert failed closed on its own first run — <code>rev-parse</code> cannot resolve parents in the depth-1 checkout CI actually uses. The rewrite was proven against a real shallow fetch before shipping. The lesson generalizes to every guard the lab writes.</p>
+    </li>
+    <li>
+      <div class="f-title">A fix applied where a bug was found — not everywhere its shape exists — is a latent outage with a timer</div>
+      <p>PR #10 diagnosed that arg-scoped <code>Bash(...)</code> allowlists auto-deny the compound and env-prefixed commands agents naturally write, and that an agent burns its whole budget rephrasing instead of working. That was fixed <b>for QA only</b>. The dev phase carried the broken shape for the entire project, invisible because every prior dev ticket needed just <code>pytest</code>. Ticket #36 — the first needing a running API — burned 121 turns, $6.25 and 13 denials on it. After the fix, the identical ticket and design completed in 101 turns, $4.52, <b>zero denials</b>.</p>
+    </li>
+    <li>
+      <div class="f-title">The retro loop reliably detects symptoms it cannot diagnose</div>
+      <p>The retro agent filed the same proposal three separate times (#27, #30, #33): dev-phase cost is missing from tickets. None of the three found the cause, because it was structurally invisible from the artifacts — <code>phase-dev.yml</code> granted <code>issues: read</code>, so every cost comment was a 403 swallowed by <code>|| true</code>. It had never worked, which is why Round 1's brief lists a dev cost as unmeasured. <b>That gap between noticing and diagnosing is the strongest practical argument for the human gate</b> the loop reports into.</p>
+    </li>
+    <li>
+      <div class="f-title">The retro loop audits everyone, including its operator</div>
+      <p>Its first live run flagged that the lab's own first improvement shipped via the bypass route while the charter described only the full-pipeline route — a true charter-vs-practice gap, filed with evidence, accepted, and landed. Its known blind spot showed up the same day: three runs filed the same proposal (no cross-run memory), and the human gate absorbed the dedupe.</p>
+    </li>
+  </ol>
+</section>
+
+<section>
+  <p class="eyebrow">§ The loop, in production</p>
+  <h2 class="prose">Nine proposals from four retro runs</h2>
+  <p class="prose">Every deployed ticket now produces its own evidence-backed critique. The queue below is the current state — acceptance is a human entry-gate decision, which is the whole point.</p>
+  <div class="plate scroll-x">
+    <table>
+      <thead><tr><th>Proposal</th><th>From</th><th>Status</th></tr></thead>
+      <tbody>
+        <tr><td><b>#22</b> Charter names the bypass route for privileged-path work</td><td class="mono">retro #20</td><td><span class="pill landed">accepted · landed</span></td></tr>
+        <tr><td><b>#23</b> Metrics mark bypass-lane tickets distinctly</td><td class="mono">retro #20</td><td><span class="pill landed">accepted · landed</span></td></tr>
+        <tr><td><b>#26</b> Skip re-verification on repeat-identical infra flakes</td><td class="mono">retro #4</td><td><span class="pill queued">queued — recommended before Round 2</span></td></tr>
+        <tr><td><b>#28</b> Suite-size-aware capacity check before tier-1 e2e</td><td class="mono">retro #4</td><td><span class="pill queued">queued — recommended before Round 2</span></td></tr>
+        <tr><td><b>#27</b> Dev cost footer on the PR, matching other phases</td><td class="mono">retro #4</td><td><span class="pill queued">queued</span></td></tr>
+        <tr><td><b>#31</b> Finer-grained fault-injection lever for QA</td><td class="mono">retro #7</td><td><span class="pill queued">queued</span></td></tr>
+        <tr><td><b>#34</b> QA evidence must name coverage when substituting scenarios</td><td class="mono">retro #8</td><td><span class="pill queued">queued</span></td></tr>
+        <tr><td><b>#30, #33</b> Duplicates of #27 filed by later retro runs</td><td class="mono">retros #7, #8</td><td><span class="pill park">closed as duplicates</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="prose">
+  <p class="eyebrow">§ Open decisions</p>
+  <h2>What waits on you</h2>
+  <div class="callout">
+    <b>Round 2 is the team pilot.</b> 21–30 day window, predefined ledger, all six people working their seats with playbooks in hand, forecast/perceived/measured per ticket. Everything Round 1 could not observe — handoff friction, review fatigue, authority conflicts between real people — is what Round 2 exists to measure.
+  </div>
+  <p><b>Before it starts, three calls are yours:</b></p>
+  <p>① <b>Access grants.</b> Your five teammates cannot operate the pipeline without them: collaborator invites <i>accepted</i>, <code>write</code> per seat (the dev manager and both developers need merge), and the dev manager added as a <i>named bypass actor</i> rather than given admin.</p>
+  <p>② <b>The window dates</b>, and an acknowledgment that all six seats share your single subscription token — which is why the round runs tickets serially.</p>
+  <p>③ <b>The ledger contents</b> — nine candidate tickets with forecasts are drafted and fact-checked in <code>docs/case/round-2-ledger.md</code>; it stays marked DRAFT until you confirm, because the charter forbids changing it once the window opens.</p>
+  <p class="small">The proposal backlog is empty. Round 1's queue is fully resolved: #26, #28, #34 and the answer-window call all landed; #27 was closed by fixing its root cause, and the proposals the later retros filed (#37 orchestrator-lane cost, #42 permission-model audit, #31 fault-injection lever) have all shipped.</p>
+  <div class="callout watch">
+    <b>Standing limitation, stated as always:</b> Round 1 had one person in all six seats and no control lane. The lab claims existence proofs and mechanisms — <i>this operating model ran, at this cost, with these failure modes</i> — not generalized productivity numbers. The perception-gap literature (METR: developers 19% slower while believing they were 20% faster) is why every claim above traces to pipeline telemetry, not to how the work felt.
+  </div>
+</section>
+
+<footer>
+  <b>Doc map</b> — everything above is derived from these, in the repo:
+  <div class="docmap">
+    <span><code>docs/lab-charter.md</code> — the method, binding</span>
+    <span><code>docs/sdlc.md</code> — the state machine spec</span>
+    <span><code>docs/playbooks/</code> — five seat playbooks</span>
+    <span><code>docs/case/round-1-brief.md</code> — this round, one page</span>
+    <span><code>docs/case/round-0-baseline.md</code> — the frozen baseline</span>
+    <span><code>docs/case/round-0-sources.md</code> — 46 cited sources</span>
+    <span><code>docs/learning-log.md</code> — the raw record</span>
+    <span><code>docs/apps.md</code> — Taskboard contracts</span>
+  </div>
+</footer>
+
+</div>
+
+<div class="tip" id="tip" role="tooltip"></div>
+<script>
+  (function () {
+    var tip = document.getElementById("tip");
+    document.querySelectorAll(".track[data-tip]").forEach(function (el) {
+      el.addEventListener("mousemove", function (e) {
+        tip.textContent = el.getAttribute("data-tip");
+        tip.style.opacity = "1";
+        var pad = 14, w = tip.offsetWidth, h = tip.offsetHeight;
+        var x = Math.min(e.clientX + pad, window.innerWidth - w - 8);
+        var y = e.clientY + pad + h > window.innerHeight ? e.clientY - h - pad : e.clientY + pad;
+        tip.style.left = x + "px";
+        tip.style.top = y + "px";
+      });
+      el.addEventListener("mouseleave", function () { tip.style.opacity = "0"; });
+    });
+  })();
+</script>
