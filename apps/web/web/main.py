@@ -41,43 +41,69 @@ def parse_page(value: str | None) -> int:
     return 1
 
 
-def board_url(status: str | None, page: int = 1) -> str:
-    """Board URL carrying the active filter and page; '/' when at defaults."""
+SEARCH_MAX_LENGTH = 1000  # mirrors the API's SEARCH_MAX_LENGTH bound
+
+
+def normalize_search(value: str | None) -> str:
+    """The board's search term: trimmed, storable, bounded. '' means no search.
+
+    The board is lenient by construction (same posture as `status`/`page`): it
+    must render 200 for anything a user can type, so unstorable characters are
+    dropped and the term is clamped rather than forwarded into an API 422.
+    Clamping is result-preserving — titles are <=200 chars, so no term longer
+    than that can match anything.
+    """
+    term = (value or "").replace("\x00", "")
+    term = term.encode("utf-8", "replace").decode("utf-8")  # drop lone surrogates
+    return term.strip()[:SEARCH_MAX_LENGTH]
+
+
+def board_url(status: str | None, page: int = 1, search: str = "") -> str:
+    """Board URL carrying the active filter, search term, and page; '/' when at defaults."""
     params = []
     if status:
         params.append(f"status={status}")
+    if search:
+        params.append(f"q={quote(search, safe='')}")
     if page != 1:
         params.append(f"page={page}")
     return f"/?{'&'.join(params)}" if params else "/"
 
 
-def edit_url(task_id: int, status: str | None = None, page: int = 1) -> str:
+def edit_url(task_id: int, status: str | None = None, page: int = 1, search: str = "") -> str:
     """Edit-page URL carrying the board the user came from; mirrors board_url()."""
     params = []
     if status:
         params.append(f"status={status}")
+    if search:
+        params.append(f"q={quote(search, safe='')}")
     if page != 1:
         params.append(f"page={page}")
     query = f"?{'&'.join(params)}" if params else ""
     return f"/tasks/{task_id}/edit{query}"
 
 
-def empty_state(api_error: bool, active: str | None, total: int | None) -> str | None:
-    """Which empty message the board shows: 'board', 'filter', or None.
+def empty_state(
+    api_error: bool, active: str | None, total: int | None, search: str = ""
+) -> str | None:
+    """Which empty message the board shows: 'board', 'filter', 'search', or None.
 
     A failed tasks fetch never reads as "you have no tasks" — the `api-error`
     banner owns that case. `total` is the total of the *rendered* set (the
-    filtered set when a filter is active), so exactly one of the two messages
-    can apply.
+    matched set when a search is active, the filtered set when a filter is
+    active), so exactly one of the messages can apply. A search takes
+    precedence over the filter message when both are active.
     """
     if api_error or total:
         return None
     if total is None:
         return None
+    if search:
+        return "search"
     return "filter" if active else "board"
 
 
-def filter_options(active: str | None) -> list[dict[str, object]]:
+def filter_options(active: str | None, search: str = "") -> list[dict[str, object]]:
     """The four filter links in order (all, todo, doing, done), active one marked."""
     values: tuple[str | None, ...] = (None, *STATUS_COLUMNS)
     return [
@@ -85,7 +111,7 @@ def filter_options(active: str | None) -> list[dict[str, object]]:
             "value": value,
             "label": value or "all",
             "testid": f"filter-{value or 'all'}",
-            "href": board_url(value),
+            "href": board_url(value, 1, search),
             "active": value == active,
         }
         for value in values
@@ -405,11 +431,15 @@ def create_app() -> FastAPI:
 
     @app.get("/", response_class=HTMLResponse)
     async def index(
-        request: Request, status: str | None = None, page: str | None = None
+        request: Request,
+        status: str | None = None,
+        q: str | None = None,
+        page: str | None = None,
     ) -> HTMLResponse:
         token = require_token(request)
         zone = resolve_zone(request.cookies.get(TZ_COOKIE))
         active = normalize_status(status)
+        search = normalize_search(q)
         visible = (active,) if active else STATUS_COLUMNS
         columns: dict[str, list[dict]] = {status: [] for status in STATUS_COLUMNS}
         current = parse_page(page)
@@ -432,6 +462,8 @@ def create_app() -> FastAPI:
                 }
                 if active:
                     params["status"] = active
+                if search:
+                    params["q"] = search
                 resp = await api(request).get("/api/tasks", params=params, headers=bearer(token))
                 if resp.status_code == 401:
                     raise SessionExpired
@@ -446,7 +478,7 @@ def create_app() -> FastAPI:
             view_total = body["total"]
             for task in body["items"]:
                 columns.setdefault(task.get("status", "todo"), []).append(task)
-            if active:
+            if active or search:
                 count_resp = await api(request).get(
                     "/api/tasks", params={"limit": 1}, headers=bearer(token)
                 )
@@ -462,7 +494,7 @@ def create_app() -> FastAPI:
         # second doomed call adds nothing, and AC-8 requires the api-error
         # banner to show without the degraded banner alongside it.
         degraded = False if api_error else await reminders_degraded(api(request), token, health_url)
-        empty = empty_state(api_error, active, view_total)
+        empty = empty_state(api_error, active, view_total, search)
         now = datetime.now(UTC)
         columns = {status: decorate_tasks(tasks, now, zone) for status, tasks in columns.items()}
         return templates.TemplateResponse(
@@ -471,8 +503,9 @@ def create_app() -> FastAPI:
             {
                 "columns": columns,
                 "statuses": visible,
-                "filters": filter_options(active),
+                "filters": filter_options(active, search),
                 "active_status": active,
+                "search": search,
                 "api_error": api_error,
                 "empty_state": empty,
                 "authed": True,
@@ -484,11 +517,12 @@ def create_app() -> FastAPI:
                 "page_count": page_count,
                 "has_prev": current > 1,
                 "has_next": current < page_count,
-                "prev_url": board_url(active, current - 1),
-                "next_url": board_url(active, current + 1),
+                "prev_url": board_url(active, current - 1, search),
+                "next_url": board_url(active, current + 1, search),
                 "tz_name": zone.key,
                 "tz_sync": True,
                 "edit_url": edit_url,
+                "board_url": board_url,
             },
         )
 
@@ -573,14 +607,19 @@ def create_app() -> FastAPI:
 
     @app.get("/tasks/{task_id}/edit", response_model=None)
     async def edit_form(
-        request: Request, task_id: int, status: str | None = None, page: str | None = None
+        request: Request,
+        task_id: int,
+        status: str | None = None,
+        q: str | None = None,
+        page: str | None = None,
     ) -> HTMLResponse | RedirectResponse:
         token = require_token(request)
         zone = resolve_zone(request.cookies.get(TZ_COOKIE))
         active = normalize_status(status)
+        search = normalize_search(q)
         current_page = parse_page(page)
-        back = board_url(active, current_page)
-        here = edit_url(task_id, active, current_page)
+        back = board_url(active, current_page, search)
+        here = edit_url(task_id, active, current_page, search)
         try:
             resp = await api(request).get(f"/api/tasks/{task_id}", headers=bearer(token))
             if resp.status_code == 401:
@@ -602,6 +641,7 @@ def create_app() -> FastAPI:
                     "description": "",
                     "due_at": "",
                     "status": active or "",
+                    "search": search,
                     "page": current_page,
                     "board_url": back,
                     "tz_name": zone.key,
@@ -620,6 +660,7 @@ def create_app() -> FastAPI:
                 "description": task["description"],
                 "due_at": local_input_value(task["due_at"], zone),
                 "status": active or "",
+                "search": search,
                 "page": current_page,
                 "board_url": back,
                 "api_error": False,
@@ -637,15 +678,17 @@ def create_app() -> FastAPI:
         due_at: Annotated[str, Form()] = "",
         csrf_token: Annotated[str, Form()] = "",
         status: Annotated[str, Form()] = "",
+        q: Annotated[str, Form()] = "",
         page: Annotated[str, Form()] = "",
     ) -> HTMLResponse | RedirectResponse:
         check_csrf(request, csrf_token)
         token = require_token(request)
         zone = resolve_zone(request.cookies.get(TZ_COOKIE))
         active = normalize_status(status)
+        search = normalize_search(q)
         current_page = parse_page(page)
-        back = board_url(active, current_page)
-        here = edit_url(task_id, active, current_page)
+        back = board_url(active, current_page, search)
+        here = edit_url(task_id, active, current_page, search)
 
         def rerender(error_message: str) -> HTMLResponse:
             return templates.TemplateResponse(
@@ -661,6 +704,7 @@ def create_app() -> FastAPI:
                     "description": description,
                     "due_at": due_at,
                     "status": active or "",
+                    "search": search,
                     "page": current_page,
                     "board_url": back,
                     "tz_name": zone.key,
@@ -717,12 +761,13 @@ def create_app() -> FastAPI:
         task_id: int,
         csrf_token: Annotated[str, Form()] = "",
         status: Annotated[str, Form()] = "",
+        q: Annotated[str, Form()] = "",
         page: Annotated[str, Form()] = "",
     ) -> RedirectResponse:
         check_csrf(request, csrf_token)
         token = require_token(request)
         await shift_status(request, task_id, token, NEXT_STATUS)
-        url = board_url(normalize_status(status), parse_page(page))
+        url = board_url(normalize_status(status), parse_page(page), normalize_search(q))
         return RedirectResponse(url=url, status_code=303)
 
     @app.post("/tasks/{task_id}/move-back")
@@ -731,12 +776,13 @@ def create_app() -> FastAPI:
         task_id: int,
         csrf_token: Annotated[str, Form()] = "",
         status: Annotated[str, Form()] = "",
+        q: Annotated[str, Form()] = "",
         page: Annotated[str, Form()] = "",
     ) -> RedirectResponse:
         check_csrf(request, csrf_token)
         token = require_token(request)
         await shift_status(request, task_id, token, PREV_STATUS)
-        url = board_url(normalize_status(status), parse_page(page))
+        url = board_url(normalize_status(status), parse_page(page), normalize_search(q))
         return RedirectResponse(url=url, status_code=303)
 
     @app.post("/tasks/{task_id}/delete")
@@ -745,6 +791,7 @@ def create_app() -> FastAPI:
         task_id: int,
         csrf_token: Annotated[str, Form()] = "",
         status: Annotated[str, Form()] = "",
+        q: Annotated[str, Form()] = "",
         page: Annotated[str, Form()] = "",
     ) -> RedirectResponse:
         check_csrf(request, csrf_token)
@@ -755,7 +802,7 @@ def create_app() -> FastAPI:
                 raise SessionExpired
         except httpx.HTTPError:
             pass  # index will surface the api-error banner
-        url = board_url(normalize_status(status), parse_page(page))
+        url = board_url(normalize_status(status), parse_page(page), normalize_search(q))
         return RedirectResponse(url=url, status_code=303)
 
     @app.get("/healthz")

@@ -30,6 +30,7 @@ from web.main import (
     format_due_at,
     local_input_value,
     normalize_input_value,
+    normalize_search,
     normalize_status,
     parse_due_at,
     parse_page,
@@ -282,6 +283,44 @@ def test_board_url_builds_filtered_and_plain_urls() -> None:
     assert board_url("todo", 2) == "/?status=todo&page=2"
 
 
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        (None, ""),
+        ("", ""),
+        ("   ", ""),
+        (" inv ", "inv"),
+        ("x" * 2000, "x" * 1000),
+        ("bad\x00term", "badterm"),
+    ],
+)
+def test_normalize_search_trims_clamps_and_drops_unstorable_chars(
+    raw: str | None, expected: str
+) -> None:
+    assert normalize_search(raw) == expected
+
+
+def test_board_url_encodes_search_term() -> None:
+    assert board_url(None, 1, "a&b c#d%e") == "/?q=a%26b%20c%23d%25e"
+    assert board_url("todo", 1, "inv") == "/?status=todo&q=inv"
+    assert board_url(None, 2, "inv") == "/?q=inv&page=2"
+    # empty search yields today's URLs unchanged
+    assert board_url(None, 1, "") == "/"
+    assert board_url("todo", 1, "") == "/?status=todo"
+    assert board_url(None, 2, "") == "/?page=2"
+
+
+def test_filter_options_preserve_search_and_reset_page() -> None:
+    options = filter_options("todo", "inv")
+
+    assert [o["href"] for o in options] == [
+        "/?q=inv",
+        "/?status=todo&q=inv",
+        "/?status=doing&q=inv",
+        "/?status=done&q=inv",
+    ]
+
+
 @pytest.mark.parametrize("value", [None, "", "abc", "0", "-1", "9.5"])
 def test_parse_page_falls_back_to_one(value: str | None) -> None:
     assert parse_page(value) == 1
@@ -314,26 +353,30 @@ def test_filter_options_marks_active_and_defaults_to_all() -> None:
 
 
 @pytest.mark.parametrize(
-    ("api_error", "active", "total", "expected"),
+    ("api_error", "active", "total", "search", "expected"),
     [
-        (True, None, 0, None),
-        (True, "todo", 0, None),
-        (True, None, None, None),
-        (True, "done", 5, None),
-        (False, None, 0, "board"),
-        (False, "todo", 0, "filter"),
-        (False, "doing", 0, "filter"),
-        (False, "done", 0, "filter"),
-        (False, None, 3, None),
-        (False, "todo", 3, None),
-        (False, None, None, None),
-        (False, "todo", None, None),
+        (True, None, 0, "", None),
+        (True, "todo", 0, "", None),
+        (True, None, None, "", None),
+        (True, "done", 5, "", None),
+        (False, None, 0, "", "board"),
+        (False, "todo", 0, "", "filter"),
+        (False, "doing", 0, "", "filter"),
+        (False, "done", 0, "", "filter"),
+        (False, None, 3, "", None),
+        (False, "todo", 3, "", None),
+        (False, None, None, "", None),
+        (False, "todo", None, "", None),
+        (False, None, 0, "inv", "search"),
+        (False, "todo", 0, "inv", "search"),
+        (True, None, 0, "inv", None),
+        (False, None, 3, "inv", None),
     ],
 )
 def test_empty_state_helper_truth_table(
-    api_error: bool, active: str | None, total: int | None, expected: str | None
+    api_error: bool, active: str | None, total: int | None, search: str, expected: str | None
 ) -> None:
-    assert empty_state(api_error, active, total) == expected
+    assert empty_state(api_error, active, total, search) == expected
 
 
 def test_decorate_tasks_marks_overdue_only_for_past_due() -> None:
@@ -2074,6 +2117,12 @@ def test_edit_url_builds_filtered_and_plain_urls() -> None:
     assert edit_url(5, "todo", 2) == "/tasks/5/edit?status=todo&page=2"
 
 
+def test_edit_url_carries_search() -> None:
+    assert edit_url(5, None, 1, "inv") == "/tasks/5/edit?q=inv"
+    assert edit_url(5, "todo", 1, "inv") == "/tasks/5/edit?status=todo&q=inv"
+    assert edit_url(5, "todo", 2, "inv") == "/tasks/5/edit?status=todo&q=inv&page=2"
+
+
 def test_local_input_value_handles_undated_and_unparseable() -> None:
     assert local_input_value(None, UTC_ZONE) == ""
     assert local_input_value("", UTC_ZONE) == ""
@@ -2868,3 +2917,233 @@ def test_pages_render_banner_and_main_landmarks(client: TestClient) -> None:
     for body in (login_body, board_body):
         assert body.count("<header>") == 1
         assert body.count("<main>") == 1
+
+
+# --- board search (issue #55) -------------------------------------------------
+
+
+@respx.mock
+def test_board_forwards_search_term_to_api(client: TestClient) -> None:
+    login(client)
+    respx.get(f"{API}/api/auth/me").mock(return_value=httpx.Response(200, json=ME))
+    tasks_route = respx.get(f"{API}/api/tasks").mock(
+        return_value=httpx.Response(200, json=page_body(SEEDED))
+    )
+    mock_health()
+
+    client.get("/?q=inv")
+
+    params = tasks_route.calls[0].request.url.params
+    assert params["q"] == "inv"
+    assert params["limit"] == "20"
+    assert params["offset"] == "0"
+
+
+@respx.mock
+def test_board_omits_q_param_when_search_blank(client: TestClient) -> None:
+    login(client)
+    _, tasks_route = mock_board()
+
+    client.get("/?q=%20%20")
+
+    assert "q" not in tasks_route.calls.last.request.url.params
+
+
+@respx.mock
+def test_board_renders_search_input_prefilled_and_clear_link(client: TestClient) -> None:
+    login(client)
+    mock_board()
+
+    body = client.get("/?q=inv").text
+
+    assert 'data-testid="search-input"' in body
+    assert 'value="inv"' in body
+    assert 'data-testid="search-clear"' in body
+    start = body.index('data-testid="search-clear"')
+    tag_start = body.rindex("<a", 0, start)
+    tag_end = body.index(">", start)
+    assert 'href="/"' in body[tag_start:tag_end]
+
+
+@respx.mock
+def test_board_omits_clear_link_without_search(client: TestClient) -> None:
+    login(client)
+    mock_board()
+
+    body = client.get("/").text
+
+    assert 'data-testid="search-clear"' not in body
+
+
+@respx.mock
+def test_board_renders_empty_search_message_and_not_empty_board_or_filter(
+    client: TestClient,
+) -> None:
+    login(client)
+    respx.get(f"{API}/api/auth/me").mock(return_value=httpx.Response(200, json=ME))
+    respx.get(f"{API}/api/tasks").mock(
+        return_value=httpx.Response(200, json=page_body([], total=0))
+    )
+    mock_health()
+
+    resp = client.get("/?q=nomatch")
+
+    assert resp.status_code == 200
+    body = resp.text
+    assert 'data-testid="empty-search"' in body
+    assert "No tasks match your search." in body
+    assert 'data-testid="empty-board"' not in body
+    assert 'data-testid="empty-filter"' not in body
+
+
+@respx.mock
+def test_board_search_pager_and_filter_links_carry_term(client: TestClient) -> None:
+    login(client)
+    respx.get(f"{API}/api/auth/me").mock(return_value=httpx.Response(200, json=ME))
+    respx.get(f"{API}/api/tasks").mock(
+        return_value=httpx.Response(200, json=page_body(make_tasks(20, "todo"), total=25))
+    )
+    mock_health()
+
+    body = client.get("/?status=todo&q=inv").text
+
+    assert 'href="/?status=todo&amp;q=inv&amp;page=2"' in body
+    start = body.index('data-testid="filter-doing"')
+    end = body.index(">", start)
+    tag = body[body.rindex("<a", 0, start) : end]
+    assert 'href="/?status=doing&amp;q=inv"' in tag
+
+
+@respx.mock
+def test_board_row_forms_and_edit_link_carry_search(client: TestClient) -> None:
+    login(client)
+    mock_board()
+
+    body = client.get("/?q=spec").text
+
+    start = body.index('data-testid="edit-link"')
+    tag_end = body.index(">", start)
+    assert 'href="/tasks/1/edit?q=spec"' in body[body.rindex("<a", 0, start) : tag_end]
+    assert 'name="q" value="spec"' in body
+
+
+@respx.mock
+def test_board_task_count_stays_grand_total_under_search(client: TestClient) -> None:
+    login(client)
+    respx.get(f"{API}/api/auth/me").mock(return_value=httpx.Response(200, json=ME))
+    tasks_route = respx.get(f"{API}/api/tasks").mock(
+        side_effect=[
+            httpx.Response(200, json=page_body(make_tasks(1, "todo"), total=1)),
+            httpx.Response(200, json=page_body(make_tasks(1), total=30)),
+        ]
+    )
+    mock_health()
+
+    body = client.get("/?q=inv").text
+
+    assert 'data-testid="task-count">30<' in body
+    assert tasks_route.call_count == 2
+
+
+@respx.mock
+def test_board_out_of_range_page_with_search_refetches_page_one(client: TestClient) -> None:
+    login(client)
+    respx.get(f"{API}/api/auth/me").mock(return_value=httpx.Response(200, json=ME))
+    tasks_route = respx.get(f"{API}/api/tasks").mock(
+        return_value=httpx.Response(200, json=page_body(SEEDED, total=len(SEEDED)))
+    )
+    mock_health()
+
+    resp = client.get("/?q=inv&page=5")
+
+    assert resp.status_code == 200
+    assert 'data-testid="pager"' not in resp.text
+    # out-of-range refetch (2 calls) plus the grand-total count fetch a search triggers
+    assert tasks_route.call_count == 3
+
+
+@respx.mock
+def test_board_long_or_unstorable_search_term_renders_200(client: TestClient) -> None:
+    login(client)
+    _, tasks_route = mock_board()
+
+    long_resp = client.get("/?" + "q=" + "x" * 2000)
+    assert long_resp.status_code == 200
+    assert 'data-testid="api-error"' not in long_resp.text
+    assert len(tasks_route.calls[0].request.url.params["q"]) == 1000
+
+    nul_resp = client.get("/?q=bad%00term")
+    assert nul_resp.status_code == 200
+    assert 'data-testid="api-error"' not in nul_resp.text
+    assert tasks_route.calls[-2].request.url.params["q"] == "badterm"
+
+
+@respx.mock
+def test_advance_move_back_delete_redirect_back_to_searched_board(client: TestClient) -> None:
+    csrf = login(client)
+    respx.get(f"{API}/api/tasks/1").mock(return_value=httpx.Response(200, json=SEEDED[0]))
+    respx.patch(f"{API}/api/tasks/1").mock(return_value=httpx.Response(200, json=SEEDED[0]))
+    respx.delete(f"{API}/api/tasks/1").mock(return_value=httpx.Response(204))
+
+    for action in ("advance", "move-back", "delete"):
+        resp = client.post(
+            f"/tasks/1/{action}",
+            data={"csrf_token": csrf, "status": "todo", "q": "inv", "page": "2"},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
+        assert resp.headers["location"] == "/?status=todo&q=inv&page=2"
+
+
+@respx.mock
+def test_edit_get_and_post_round_trip_preserves_search(client: TestClient) -> None:
+    csrf = login(client)
+    task = {**SEEDED[0], "id": 1}
+    respx.get(f"{API}/api/tasks/1").mock(return_value=httpx.Response(200, json=task))
+    respx.patch(f"{API}/api/tasks/1").mock(return_value=httpx.Response(200, json=task))
+
+    get_body = client.get("/tasks/1/edit?status=todo&q=inv&page=2").text
+    assert 'name="q" value="inv"' in get_body
+    assert 'href="/?status=todo&amp;q=inv&amp;page=2"' in get_body
+
+    resp = client.post(
+        "/tasks/1/edit",
+        data={
+            "title": task["title"],
+            "description": task["description"],
+            "status": "todo",
+            "q": "inv",
+            "page": "2",
+            "csrf_token": csrf,
+        },
+        follow_redirects=False,
+    )
+
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/?status=todo&q=inv&page=2"
+
+
+@respx.mock
+def test_search_form_renders_after_status_filter_nav(client: TestClient) -> None:
+    login(client)
+    mock_board()
+
+    body = client.get("/").text
+
+    assert body.index('data-testid="status-filter"') < body.index('data-testid="search-form"')
+
+
+@respx.mock
+def test_search_form_adds_no_landmark_or_role(client: TestClient) -> None:
+    login(client)
+    mock_board()
+
+    body = client.get("/").text
+
+    start = body.index('data-testid="search-form"')
+    tag_end = body.index(">", start)
+    tag_start = body.rindex("<form", 0, start)
+    tag = body[tag_start:tag_end]
+    assert "role=" not in tag
+    assert body.count("<header>") == 1
+    assert body.count("<main>") == 1

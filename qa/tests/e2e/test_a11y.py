@@ -207,6 +207,19 @@ def test_new_form_focus_order(alice_page: Page) -> None:
     )
 
 
+def test_search_control_has_accessible_name(alice_page: Page) -> None:
+    alice_page.goto("/")
+
+    expect(
+        alice_page.get_by_test_id("search-input"),
+        'search input has no accessible name — is <label for="q"> still in index.html?',
+    ).to_have_accessible_name("Search tasks")
+    expect(
+        alice_page.get_by_test_id("search-submit"),
+        "search submit button has no accessible name",
+    ).to_have_accessible_name("Search")
+
+
 @pytest.mark.parametrize(
     "path,fixture_name",
     [
@@ -214,6 +227,7 @@ def test_new_form_focus_order(alice_page: Page) -> None:
         ("/", "alice_page"),
         ("/new", "alice_page"),
         ("/?status=todo", "alice_page"),
+        ("/?q=inv", "alice_page"),
     ],
 )
 def test_pages_expose_banner_and_main_landmarks(

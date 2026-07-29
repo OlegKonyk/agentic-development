@@ -143,12 +143,22 @@ class ApiClient:
     # -- tasks --------------------------------------------------------------
 
     def list_tasks(
-        self, status: str | None = None, limit: int | None = None, offset: int | None = None
+        self,
+        status: str | None = None,
+        limit: int | None = None,
+        offset: int | None = None,
+        *,
+        q: str | None = None,
     ) -> list[dict[str, Any]]:
-        return self.page_tasks(status, limit, offset)["items"]
+        return self.page_tasks(status, limit, offset, q=q)["items"]
 
     def page_tasks(
-        self, status: str | None = None, limit: int | None = None, offset: int | None = None
+        self,
+        status: str | None = None,
+        limit: int | None = None,
+        offset: int | None = None,
+        *,
+        q: str | None = None,
     ) -> dict[str, Any]:
         """Full `{items, total, limit, offset}` envelope from `GET /api/tasks`."""
         params: dict[str, Any] = {}
@@ -158,6 +168,8 @@ class ApiClient:
             params["limit"] = limit
         if offset is not None:
             params["offset"] = offset
+        if q:
+            params["q"] = q
         resp = self.request("GET", "/api/tasks", params=params or None)
         resp.raise_for_status()
         return resp.json()

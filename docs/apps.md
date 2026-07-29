@@ -69,6 +69,23 @@ returned page and `total` describe the filtered set. `total` ignores
 correct `total` — never 404. Out-of-bounds or non-integer `limit`/`offset` →
 422, same validation-error shape as `due_at`/`title` (the `offset` upper bound
 guards the same asyncpg bind-overflow class as the `TaskId` path bound).
+`GET /api/tasks` also accepts an optional `q` query param (`maxLength: 1000`,
+non-nullable/optional-by-absence in the schema like `status`): a
+case-insensitive literal substring match against `title` only (description
+and status are never searched). `q` absent, empty, or whitespace-only applies
+no filter (byte-identical to today). `q` composes with `status` (both
+predicates AND'd) and with `limit`/`offset` exactly like the existing filters:
+both the `count(*)` and the page query read the same filter set, so `items`
+and `total` describe the matched set and `total` stays stable across its
+pages; `URGENCY_ORDER` is applied after filtering, so search never re-orders.
+`%`, `_`, and `\` in `q` match literally (SQL-wildcard-escaped before the
+`ILIKE`) — a search for `%` alone does not return every task. `q` longer than
+1000 chars, or containing NUL/an unpaired surrogate, → 422 in the same
+validation-error shape as `due_at`/`title`. An `offset` past the end of a
+matched set is `200` with `items: []` and the correct matched `total`, never
+404, same as the unsearched case. Owner scoping is structural (`owner_id`
+filters first), so a search can never leak another user's matching task or
+its count.
 `PATCH /api/tasks/{id}` distinguishes an omitted field from an explicit
 `null`: an explicit `{"due_at": null}` clears the due date (200, response
 `due_at: null`); omitting `due_at` leaves it untouched, exactly as before.
@@ -191,15 +208,15 @@ POST; mismatch → 403).
 due date; status is neither shown nor sent (it only moves via
 `advance`/`move-back`). Each `task-row` carries a new `edit-link`
 (`data-testid="edit-link"`, class `btn-edit`, visible text `Edit`, first
-action in the row) whose href is `edit_url(id, status, page)` — the same
-filter/page carried by the other row actions. `GET` renders `edit.html`
+action in the row) whose href is `edit_url(id, status, page, q)` — the same
+filter/page/search carried by the other row actions. `GET` renders `edit.html`
 pre-filled from `GET /api/tasks/{id}`: `title-input`, `description-input`,
 `due-at-input` (in the viewer's time zone, via the `tz` cookie, same as `/new`),
 a `due-at-zone` hint (`Times are in <zone>. Leave empty to remove the due
 date.`), a `submit-edit` button (`Save changes`) and an `edit-cancel` link
-(`Cancel`) back to the originating board URL. Hidden `status`/`page` inputs
-carry the originating board through to `POST`, which redirects (303) back to
-that same filtered/paged board on success. No session → 303
+(`Cancel`) back to the originating board URL. Hidden `status`/`q`/`page`
+inputs carry the originating board through to `POST`, which redirects (303)
+back to that same filtered/paged/searched board on success. No session → 303
 `/login?next=<edit url>` (query preserved); API 401 on either the `GET` or the
 `POST` → session cleared, 303 `/login` (`next` set when the edit URL carries a
 filter/page). Another user's task id → silent 303 to the caller's own board on
@@ -280,12 +297,14 @@ page"`, `rel="prev"`), `data-testid="pager-next"` (present only when `page <
 page_count`, `aria-label="Next page"`, `rel="next"`), `data-testid="pager-status"`
 (text `Page {n} of {m}`). Pager links carry no `aria-current` — the board's
 single `aria-current="page"` stays on the active status-filter link. Pager
-URLs preserve the active filter (`/?status=todo&page=2`); page-1 URLs omit
-`page` entirely, so `/` and `/?status=todo` stay byte-identical to today.
+URLs preserve the active filter and search term (`/?status=todo&q=inv&page=2`);
+page-1 and no-search URLs omit `page`/`q` entirely, so `/` and `/?status=todo`
+stay byte-identical to today.
 `task-count` is unchanged in meaning: the user's grand total across all
-statuses, independent of page and filter. Each row's move-back/advance/delete
-form carries a hidden `name="page"` input; all three actions redirect back to
-the same page and filter. `GET /` fetches `/api/reminders/health` (dedicated 2s timeout)
+statuses, independent of page, filter, and search. Each row's
+move-back/advance/delete form carries hidden `name="page"` and `name="q"`
+inputs; all three actions redirect back to the same page, filter, and search.
+`GET /` fetches `/api/reminders/health` (dedicated 2s timeout)
 after the tasks fetch — skipped when the tasks fetch already failed — and
 renders a degraded-service banner (`data-testid="reminder-degraded-banner"`,
 `role="status"`, no `tabindex`/`autofocus`) as the first element of the board
@@ -311,6 +330,36 @@ redirect back to the same filtered (or unfiltered) board. Protected-page auth
 redirects now preserve the query string in `next` (e.g. unauthed `GET
 /?status=todo` → 303 `/login?next=/%3Fstatus%3Dtodo`); `/` and `/new`
 redirects are unchanged.
+
+**Search.** `GET /` also accepts an optional `q` query param: a search box
+lets a user narrow the board to tasks whose title contains what they typed,
+across their whole task list rather than just the rendered page. Rendered as
+`data-testid="search-form"` (`<form method="get" action="/">`, no `role` and
+no accessible name so it adds no new landmark, not `class="stacked"`),
+immediately after the `status-filter` nav — a hidden `status` input (present
+only when a filter is active) keeps the column when submitting a search.
+`data-testid="search-input"` (`<input id="q" name="q" type="search"
+maxlength="1000">`, labelled by `<label for="q">Search tasks</label>`,
+pre-filled with the active term) and `data-testid="search-submit"` (button,
+text `Search`). `data-testid="search-clear"` (link, text `Clear search`) is
+present only when a search is active; its href is the same board at page 1
+with the status filter kept and `q` dropped. The term is trimmed, stripped of
+unstorable characters (NUL, lone surrogates), and clamped to 1000 chars before
+being forwarded to the API — lenient like `status`/`page`: any input a user
+can type renders 200, never a validation error. A missing, empty, or
+whitespace-only `q` means no search — the ordinary board, and every app-
+generated page-1/no-search URL (filter links, pager links, row-action
+redirects, edit links) carries no `q` parameter, so `/` and `/?status=todo`
+stay byte-identical to today. When a search matches nothing:
+`data-testid="empty-search"` (text `No tasks match your search.`), rendered
+in the same slot as `empty-board`/`empty-filter` and taking precedence over
+both — never more than one empty-state message, and it is suppressed like the
+others when the tasks fetch failed. A search composes with the status filter
+(both applied together) and with paging (the pager and its page count
+describe the matched set); the search term survives every board interaction —
+pager links, status-filter links, row actions, and the edit page and its
+redirects — by riding along as `q` next to the existing `status`/`page`
+plumbing.
 
 When the tasks fetch succeeded and the rendered set is empty, the board shows
 exactly one empty-state message. Unfiltered with zero tasks:
@@ -384,6 +433,13 @@ through again, mirroring the `toxiproxy` fixture's recovery gate.
   timeout) and the board still renders with no degraded banner, `GET
   /api/tasks` returns an identical envelope through the gateway, and board
   actions (advance/delete) keep working.
+  `tests/e2e/test_board_search.py` covers the title search: matching over the
+  whole task list (not just the rendered page), composing with the status
+  filter and pager, surviving row actions and the edit round-trip, the
+  no-match `empty-search` state, blank/whitespace meaning "no search",
+  owner-scoped identical titles, literal wildcard matching, and long/
+  punctuation/emoji terms rendering 200 with no `q` leaking onto unsearched
+  URLs.
 - `tests/contract/` — Schemathesis v4 against the API (auth'd via bearer
   override), replaying a committed corpus (`tests/contract/corpus.json`, ≤25
   cases per operation) instead of generating on the fly — no PRNG in the

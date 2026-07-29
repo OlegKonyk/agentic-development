@@ -97,6 +97,18 @@ def test_list_tasks_pagination_is_documented(api_url: str) -> None:
     assert set(task_page["required"]) == {"items", "total", "limit", "offset"}
 
 
+def test_list_tasks_documents_optional_q_param(api_url: str) -> None:
+    spec = httpx.get(f"{api_url}/openapi.json", timeout=10.0).json()
+    params = {p["name"]: p for p in spec["paths"]["/api/tasks"]["get"]["parameters"]}
+
+    q_param = params["q"]
+    assert q_param["required"] is False
+    q_schema = q_param["schema"]
+    assert q_schema["type"] == "string"
+    assert q_schema["maxLength"] == 1000
+    assert "null" not in q_schema.get("type", [])
+
+
 def test_task_update_due_at_is_documented_nullable(api_url: str) -> None:
     # PATCH /api/tasks/{id} clears due_at only on an explicit null; that
     # semantics rides on TaskUpdate.due_at staying nullable in the schema.
