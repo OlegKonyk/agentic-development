@@ -20,8 +20,10 @@ from app.auth import router as auth_router
 from app.db import SessionDep
 from app.jobs import enqueue_due
 from app.models import (
+    SEARCH_MAX_LENGTH,
     ReminderDelivery,
     ReminderHealthRead,
+    SearchTerm,
     Status,
     Task,
     TaskCreate,
@@ -58,6 +60,25 @@ NULLABLE_UPDATE_FIELDS = frozenset({"due_at"})
 # OFFSET paging can neither duplicate nor drop a row across pages.
 URGENCY_ORDER = (nulls_last(col(Task.due_at).asc()), col(Task.id).asc())
 
+LIKE_ESCAPE = "\\"
+
+
+def title_contains(term: str):
+    """Case-insensitive literal substring match on title.
+
+    `%`, `_` and the escape char are neutralized so a user's wildcard is data,
+    not syntax: searching `%` must not return every task. Order of the escape
+    replacements is load-bearing: backslash first, or the escapes introduced
+    for `%`/`_` get double-escaped.
+    """
+    escaped = (
+        term.replace(LIKE_ESCAPE, LIKE_ESCAPE * 2)
+        .replace("%", f"{LIKE_ESCAPE}%")
+        .replace("_", f"{LIKE_ESCAPE}_")
+    )
+    return col(Task.title).ilike(f"%{escaped}%", escape=LIKE_ESCAPE)
+
+
 tasks_router = APIRouter(
     prefix="/api/tasks",
     tags=["tasks"],
@@ -80,12 +101,16 @@ async def list_tasks(
     # SkipJsonSchema keeps null out of the OpenAPI schema: the param is
     # optional-by-absence, not nullable-by-value (contract-tested).
     status: Annotated[Status | SkipJsonSchema[None], Query()] = None,
+    q: Annotated[SearchTerm | SkipJsonSchema[None], Query(max_length=SEARCH_MAX_LENGTH)] = None,
     limit: Annotated[int, Query(ge=1, le=MAX_LIMIT)] = DEFAULT_LIMIT,
     offset: Annotated[int, Query(ge=0, le=MAX_OFFSET)] = 0,
 ) -> TaskPage:
     filters = [Task.owner_id == user.id]
     if status is not None:
         filters.append(Task.status == status)
+    term = (q or "").strip()
+    if term:
+        filters.append(title_contains(term))
     total = (await session.exec(select(func.count()).select_from(Task).where(*filters))).one()
     statement = select(Task).where(*filters).order_by(*URGENCY_ORDER).limit(limit).offset(offset)
     tasks = (await session.exec(statement)).all()

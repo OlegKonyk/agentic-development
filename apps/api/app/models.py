@@ -42,6 +42,13 @@ Title = Annotated[
     AfterValidator(_require_non_blank),
 ]
 
+# Larger than Title's 200-char max so the web layer can clamp an over-long
+# typed search term to this bound without changing results: no term longer
+# than a title's max length can ever be a substring of one.
+SEARCH_MAX_LENGTH = 1000
+
+SearchTerm = Annotated[str, AfterValidator(_require_storable)]
+
 
 def _utcnow() -> datetime:
     return datetime.now(UTC)
