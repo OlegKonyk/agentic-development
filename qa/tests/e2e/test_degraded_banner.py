@@ -78,6 +78,12 @@ def test_board_stays_functional_while_degraded(
     expect(alice_page.get_by_test_id("task-count")).to_be_visible()
     expect(alice_page.get_by_test_id("status-filter")).to_be_visible()
 
+    faulted_row = alice_page.get_by_test_id("task-row").filter(has_text="degraded-banner-fault")
+    expect(faulted_row.get_by_test_id("reminder-badge")).to_have_text("Reminder failed")
+    expect(alice_page.get_by_role("banner")).to_have_count(1)
+    expect(alice_page.get_by_role("main")).to_have_count(1)
+    expect(alice_page.get_by_role("status")).to_have_count(1)
+
     row = alice_page.get_by_test_id("task-row").filter(has_text="Other task")
     row.get_by_test_id("advance-btn").click()
 

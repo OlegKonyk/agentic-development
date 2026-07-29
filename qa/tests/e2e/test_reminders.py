@@ -41,6 +41,15 @@ def test_reminder_full_loop(alice_api: ApiClient, alice_page: Page, api_url: str
     title = f"reminder-loop-{uuid.uuid4().hex[:8]}"
     task = alice_api.create_task(title, due_at=rfc3339_in(2))
 
+    alice_page.goto("/")
+    scheduled_badge = (
+        alice_page.get_by_test_id("task-row")
+        .filter(has_text=title)
+        .get_by_test_id("reminder-badge")
+    )
+    assert scheduled_badge.count() == 1
+    assert scheduled_badge.inner_text() == "Reminder scheduled"
+
     def vendor_called() -> list[dict[str, Any]]:
         alice_api.run_due_reminders()  # deterministic trigger+poll — never sleep
         return _vendor_notification_calls(task["id"])
@@ -61,6 +70,6 @@ def test_reminder_full_loop(alice_api: ApiClient, alice_page: Page, api_url: str
             .filter(has_text=title)
             .get_by_test_id("reminder-badge")
         )
-        return badge.count() == 1 and "sent" in badge.inner_text()
+        return badge.count() == 1 and badge.inner_text() == "Reminder sent"
 
     wait_until(badge_sent, timeout=15, message="reminder-badge shows sent")
