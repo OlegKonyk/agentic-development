@@ -45,6 +45,15 @@ Later rounds compare against it; where a round can afford it, tickets may be
 alternated between an agent-driven lane and a manual lane. Every brief states
 which comparison it used and what that comparison cannot prove.
 
+**The apparatus freezes with the ledger.** An agent's charter is the instrument
+a round measures with, so changing what a phase *decides* mid-window makes the
+round's own comparison worthless — tickets before and after ran under different
+instruments. Repairing an instrument back to its documented behaviour is not
+the same act and is allowed: Round 2 fixed a dev charter that omitted a check
+its sibling required, while deliberately leaving a calibration change frozen
+until the window closed. State which of the two any mid-round change was, in the
+brief's failure ledger.
+
 **Speed is always paired with stability.** Any throughput claim must appear
 next to its counterweight (rework rate, change-failure rate, escaped
 defects). [DORA 2025's](https://dora.dev/research/2025/dora-report/) core
