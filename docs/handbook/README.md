@@ -1,15 +1,16 @@
-# Handbook — the printable overviews
+# Handbook — the overviews
 
-Three self-contained pages that explain this project without requiring you to
-read the code. Each exists twice: a **PDF** for reading and sharing, and the
-**HTML source** it was rendered from, which opens offline in any browser with no
-network access and no build step.
+Four self-contained documents that explain this project without requiring you to
+read the code. The first three exist twice: a **PDF** for reading and sharing,
+and the **HTML source** it was rendered from, which opens offline in any browser
+with no network access and no build step.
 
 | | Read this to learn |
 |---|---|
 | **[01-lab-review.pdf](01-lab-review.pdf)** (11pp) | What was built and what it found — the apparatus, the six seats, three rounds of measured results, and the findings ledger. Start here. |
 | **[02-system-map.pdf](02-system-map.pdf)** (8pp) | How the machine works — every trigger, every guard, and the incident behind each one. Read this when you want to build something like it. |
 | **[03-round-3-preflight.pdf](03-round-3-preflight.pdf)** (4pp) | The operator checklist for onboarding a real team, including the GitHub access model. |
+| **[04-glossary.md](04-glossary.md)** | The terminology, in four layers from the model outward — what each term means, where it appears in this repo, and a link to Anthropic's documentation for it. Markdown rather than PDF because it is meant to be searched, not read straight through. |
 
 The HTML versions are the originals (`review.html`, `system-map.html`,
 `round-3-preflight.html`). They are theme-aware, they contain no external

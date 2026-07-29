@@ -48,6 +48,11 @@ two items are printable and need no tooling:
 5. **[`docs/learning-log.md`](docs/learning-log.md)** — the raw chronological
    record. Every guard in the system traces back to an entry here.
 
+If any of the vocabulary is unfamiliar — headless mode, skills, plugins, MCP,
+permission modes, structured output — **[`docs/handbook/04-glossary.md`](docs/handbook/04-glossary.md)**
+defines it, says where it appears in this repo, and links to Anthropic's own
+documentation for it.
+
 Then, depending on what you came for: **`docs/playbooks/`** for how each of the
 six roles changes; **`docs/case/`** for the round briefs and the frozen cost
 baselines; **`.github/workflows/`** + **`scripts/`** for the mechanism itself.
