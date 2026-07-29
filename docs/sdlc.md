@@ -314,6 +314,13 @@ claude -p "<skill invocation + context>" \
   denials). Fix the sandbox, never the ceiling.
 - Fork PRs (`isCrossRepository`) are refused: labeled `needs-human`, never run
   with secrets.
+- `assistant.yml` (the interactive `@claude` channel, outside the state machine)
+  is gated on three conditions, not just the mention: a non-bot author and an
+  `author_association` of OWNER/MEMBER/COLLABORATOR. The repo is public, so the
+  mention alone would let any user spend the subscription token at
+  contents-write; and excluding bots keeps the pipeline from chaining into it,
+  since phase comments ride the App token and agent prose can contain any
+  string.
 - Agents write only to `feature/*` branches; `main` is protected by the ruleset;
   the App has no `workflows: write` (agents cannot edit pipeline definitions —
   workflow file changes are human-only by construction).
