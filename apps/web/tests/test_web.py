@@ -24,9 +24,12 @@ from web.main import (
     create_app,
     decorate_tasks,
     draft_fits,
+    edit_url,
     empty_state,
     filter_options,
     format_due_at,
+    local_input_value,
+    normalize_input_value,
     normalize_status,
     parse_due_at,
     parse_page,
@@ -2057,6 +2060,476 @@ def test_new_task_error_rerender_paths_leave_no_stashed_draft(client: TestClient
 
     body = client.get("/new").text
     assert "kept locally" not in body
+
+
+# --- edit task ---------------------------------------------------------------
+
+
+def test_edit_url_builds_filtered_and_plain_urls() -> None:
+    assert edit_url(5) == "/tasks/5/edit"
+    assert edit_url(5, "doing") == "/tasks/5/edit?status=doing"
+    assert edit_url(5, None, 1) == "/tasks/5/edit"
+    assert edit_url(5, "todo", 1) == "/tasks/5/edit?status=todo"
+    assert edit_url(5, None, 2) == "/tasks/5/edit?page=2"
+    assert edit_url(5, "todo", 2) == "/tasks/5/edit?status=todo&page=2"
+
+
+def test_local_input_value_handles_undated_and_unparseable() -> None:
+    assert local_input_value(None, UTC_ZONE) == ""
+    assert local_input_value("", UTC_ZONE) == ""
+    assert local_input_value("not-a-date", UTC_ZONE) == ""
+
+
+def test_local_input_value_converts_to_viewer_zone() -> None:
+    berlin = ZoneInfo("Europe/Berlin")
+    assert local_input_value("2026-08-25T15:00:00Z", berlin) == "2026-08-25T17:00"
+    assert local_input_value("2026-08-25T15:00:00Z", UTC_ZONE) == "2026-08-25T15:00"
+
+
+def test_normalize_input_value_blank_and_roundtrip() -> None:
+    berlin = ZoneInfo("Europe/Berlin")
+    assert normalize_input_value("", berlin) == ""
+    assert normalize_input_value("   ", berlin) == ""
+    normalized = normalize_input_value("2026-08-25T17:00", berlin)
+    assert normalized == "2026-08-25T17:00"
+    # round-trips through local_input_value on the same instant
+    as_wire = to_rfc3339_z(normalized, berlin)
+    assert local_input_value(as_wire, berlin) == normalized
+
+
+def test_normalize_input_value_raises_on_garbage() -> None:
+    with pytest.raises(ValueError):
+        normalize_input_value("not-a-date", UTC_ZONE)
+
+
+@respx.mock
+def test_edit_form_prefills_from_api(client: TestClient) -> None:
+    login(client)
+    task = {**SEEDED[1], "id": 2}
+    respx.get(f"{API}/api/tasks/2").mock(return_value=httpx.Response(200, json=task))
+
+    resp = client.get("/tasks/2/edit")
+
+    assert resp.status_code == 200
+    body = resp.text
+    assert f'value="{task["title"]}"' in body
+    assert task["description"] in body
+    assert 'data-testid="submit-edit"' in body
+    assert 'data-testid="edit-cancel"' in body
+    assert 'data-tz-sync="1"' in body
+
+
+@respx.mock
+def test_edit_form_due_at_prefilled_in_viewer_zone(client: TestClient) -> None:
+    login(client)
+    client.cookies.set("tz", "Europe/Berlin")
+    task = {**SEEDED[0], "id": 1, "due_at": "2026-08-25T15:00:00Z"}
+    respx.get(f"{API}/api/tasks/1").mock(return_value=httpx.Response(200, json=task))
+
+    body = client.get("/tasks/1/edit").text
+
+    assert 'value="2026-08-25T17:00"' in body
+    assert "Times are in Europe/Berlin." in body
+
+
+@respx.mock
+def test_edit_form_undated_task_has_empty_due_field(client: TestClient) -> None:
+    login(client)
+    task = {**SEEDED[0], "id": 1, "due_at": None}
+    respx.get(f"{API}/api/tasks/1").mock(return_value=httpx.Response(200, json=task))
+
+    body = client.get("/tasks/1/edit").text
+
+    assert re.search(r'data-testid="due-at-input"[^>]*value="">', body)
+
+
+@respx.mock
+def test_edit_form_cancel_link_points_at_originating_board(client: TestClient) -> None:
+    login(client)
+    task = {**SEEDED[0], "id": 1}
+    respx.get(f"{API}/api/tasks/1").mock(return_value=httpx.Response(200, json=task))
+
+    body = client.get("/tasks/1/edit?status=doing&page=2").text
+
+    start = body.index('data-testid="edit-cancel"')
+    tag_start = body.rindex("<a", 0, start)
+    tag_end = body.index(">", start)
+    assert 'href="/?status=doing&amp;page=2"' in body[tag_start:tag_end]
+
+
+@respx.mock
+def test_edit_form_unknown_task_redirects_to_board_with_no_leak(client: TestClient) -> None:
+    login(client)
+    respx.get(f"{API}/api/tasks/999").mock(return_value=httpx.Response(404))
+
+    resp = client.get("/tasks/999/edit", follow_redirects=False)
+
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/"
+
+
+@respx.mock
+def test_edit_form_api_down_shows_error_banner(client: TestClient) -> None:
+    login(client)
+    respx.get(f"{API}/api/tasks/1").mock(side_effect=httpx.ConnectError("refused"))
+
+    resp = client.get("/tasks/1/edit")
+
+    assert resp.status_code == 200
+    assert 'data-testid="api-error"' in resp.text
+
+
+@respx.mock
+def test_edit_form_api_401_redirects_to_login_with_next(client: TestClient) -> None:
+    login(client)
+    respx.get(f"{API}/api/tasks/1").mock(return_value=httpx.Response(401))
+
+    resp = client.get("/tasks/1/edit?status=todo", follow_redirects=False)
+
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/login?next=/tasks/1/edit%3Fstatus%3Dtodo"
+    body = client.get("/login").text
+    assert 'data-testid="session-expired"' in body
+
+
+def test_unauthed_edit_redirects_to_login_with_next(client: TestClient) -> None:
+    resp = client.get("/tasks/1/edit?status=todo", follow_redirects=False)
+
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/login?next=/tasks/1/edit%3Fstatus%3Dtodo"
+
+
+@respx.mock
+def test_edit_task_sends_title_and_description_without_due_at_when_untouched(
+    client: TestClient,
+) -> None:
+    csrf = login(client)
+    task = {**SEEDED[1], "id": 2}
+    respx.get(f"{API}/api/tasks/2").mock(return_value=httpx.Response(200, json=task))
+    patch = respx.patch(f"{API}/api/tasks/2").mock(
+        return_value=httpx.Response(200, json={**task, "title": "Renamed"})
+    )
+    current_due = local_input_value(task["due_at"], UTC_ZONE)
+
+    resp = client.post(
+        "/tasks/2/edit",
+        data={
+            "title": "Renamed",
+            "description": task["description"],
+            "due_at": current_due,
+            "csrf_token": csrf,
+        },
+        follow_redirects=False,
+    )
+
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/"
+    sent = json.loads(patch.calls.last.request.content)
+    assert sent == {"title": "Renamed", "description": task["description"]}
+    assert "due_at" not in sent
+
+
+@respx.mock
+def test_edit_task_clearing_due_field_sends_explicit_null(client: TestClient) -> None:
+    csrf = login(client)
+    task = {**SEEDED[1], "id": 2}
+    respx.get(f"{API}/api/tasks/2").mock(return_value=httpx.Response(200, json=task))
+    patch = respx.patch(f"{API}/api/tasks/2").mock(
+        return_value=httpx.Response(200, json={**task, "due_at": None})
+    )
+
+    resp = client.post(
+        "/tasks/2/edit",
+        data={
+            "title": task["title"],
+            "description": task["description"],
+            "due_at": "",
+            "csrf_token": csrf,
+        },
+        follow_redirects=False,
+    )
+
+    assert resp.status_code == 303
+    sent = json.loads(patch.calls.last.request.content)
+    assert sent["due_at"] is None
+
+
+@respx.mock
+def test_edit_task_new_due_date_converted_to_rfc3339_z(client: TestClient) -> None:
+    csrf = login(client)
+    client.cookies.set("tz", "Europe/Berlin")
+    task = {**SEEDED[0], "id": 1, "due_at": None}
+    respx.get(f"{API}/api/tasks/1").mock(return_value=httpx.Response(200, json=task))
+    patch = respx.patch(f"{API}/api/tasks/1").mock(return_value=httpx.Response(200, json=task))
+
+    resp = client.post(
+        "/tasks/1/edit",
+        data={
+            "title": task["title"],
+            "description": "",
+            "due_at": "2026-08-25T17:00",
+            "csrf_token": csrf,
+        },
+        follow_redirects=False,
+    )
+
+    assert resp.status_code == 303
+    sent = json.loads(patch.calls.last.request.content)
+    assert sent["due_at"] == "2026-08-25T15:00:00Z"
+
+
+@respx.mock
+def test_edit_task_never_sends_status(client: TestClient) -> None:
+    csrf = login(client)
+    task = {**SEEDED[0], "id": 1}
+    respx.get(f"{API}/api/tasks/1").mock(return_value=httpx.Response(200, json=task))
+    patch = respx.patch(f"{API}/api/tasks/1").mock(return_value=httpx.Response(200, json=task))
+
+    client.post(
+        "/tasks/1/edit",
+        data={"title": task["title"], "description": "", "csrf_token": csrf},
+        follow_redirects=False,
+    )
+
+    sent = json.loads(patch.calls.last.request.content)
+    assert "status" not in sent
+
+
+@respx.mock
+def test_edit_task_redirects_to_originating_filtered_paged_board(client: TestClient) -> None:
+    csrf = login(client)
+    task = {**SEEDED[0], "id": 1}
+    respx.get(f"{API}/api/tasks/1").mock(return_value=httpx.Response(200, json=task))
+    respx.patch(f"{API}/api/tasks/1").mock(return_value=httpx.Response(200, json=task))
+
+    resp = client.post(
+        "/tasks/1/edit",
+        data={
+            "title": task["title"],
+            "description": "",
+            "status": "doing",
+            "page": "2",
+            "csrf_token": csrf,
+        },
+        follow_redirects=False,
+    )
+
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/?status=doing&page=2"
+
+
+@respx.mock
+def test_edit_task_past_due_date_shows_error_and_keeps_typed_values(client: TestClient) -> None:
+    csrf = login(client)
+    task = {**SEEDED[0], "id": 1, "due_at": None}
+    respx.get(f"{API}/api/tasks/1").mock(return_value=httpx.Response(200, json=task))
+    respx.patch(f"{API}/api/tasks/1").mock(
+        return_value=httpx.Response(
+            422, json={"detail": [{"loc": ["body", "due_at"], "type": "value_error"}]}
+        )
+    )
+
+    resp = client.post(
+        "/tasks/1/edit",
+        data={
+            "title": "Kept title",
+            "description": "kept desc",
+            "due_at": "2020-01-01T00:00",
+            "csrf_token": csrf,
+        },
+        follow_redirects=False,
+    )
+
+    assert resp.status_code == 200
+    assert 'data-testid="api-error"' in resp.text
+    assert "Please check the task details and try again." in resp.text
+    assert 'value="Kept title"' in resp.text
+    assert "kept desc" in resp.text
+    assert 'value="2020-01-01T00:00"' in resp.text
+    assert 'data-tz-sync="1"' not in resp.text
+
+
+@respx.mock
+def test_edit_task_whitespace_title_shows_title_error(client: TestClient) -> None:
+    csrf = login(client)
+    task = {**SEEDED[0], "id": 1}
+    respx.get(f"{API}/api/tasks/1").mock(return_value=httpx.Response(200, json=task))
+    respx.patch(f"{API}/api/tasks/1").mock(
+        return_value=httpx.Response(
+            422, json={"detail": [{"loc": ["body", "title"], "type": "value_error"}]}
+        )
+    )
+
+    resp = client.post(
+        "/tasks/1/edit",
+        data={"title": " ", "description": "", "csrf_token": csrf},
+        follow_redirects=False,
+    )
+
+    assert resp.status_code == 200
+    assert "Title must contain at least one non-whitespace character." in resp.text
+
+
+@respx.mock
+def test_edit_task_overdue_untouched_due_date_saves_without_error(client: TestClient) -> None:
+    csrf = login(client)
+    task = {**SEEDED[0], "id": 1, "due_at": "2020-01-01T00:00:00Z"}
+    respx.get(f"{API}/api/tasks/1").mock(return_value=httpx.Response(200, json=task))
+    patch = respx.patch(f"{API}/api/tasks/1").mock(
+        return_value=httpx.Response(200, json={**task, "title": "Still overdue"})
+    )
+
+    resp = client.post(
+        "/tasks/1/edit",
+        data={
+            "title": "Still overdue",
+            "description": "",
+            "due_at": local_input_value(task["due_at"], UTC_ZONE),
+            "csrf_token": csrf,
+        },
+        follow_redirects=False,
+    )
+
+    assert resp.status_code == 303
+    sent = json.loads(patch.calls.last.request.content)
+    assert "due_at" not in sent
+
+
+@respx.mock
+def test_edit_task_unparseable_due_input_shows_error_and_issues_no_patch(
+    client: TestClient,
+) -> None:
+    csrf = login(client)
+    task = {**SEEDED[0], "id": 1}
+    respx.get(f"{API}/api/tasks/1").mock(return_value=httpx.Response(200, json=task))
+    patch = respx.patch(f"{API}/api/tasks/1").mock(return_value=httpx.Response(200, json=task))
+
+    resp = client.post(
+        "/tasks/1/edit",
+        data={"title": "x", "description": "", "due_at": "garbage", "csrf_token": csrf},
+        follow_redirects=False,
+    )
+
+    assert resp.status_code == 200
+    assert 'data-testid="api-error"' in resp.text
+    assert not patch.called
+
+
+@respx.mock
+def test_edit_task_api_down_on_write_shows_error_banner(client: TestClient) -> None:
+    csrf = login(client)
+    task = {**SEEDED[0], "id": 1}
+    respx.get(f"{API}/api/tasks/1").mock(return_value=httpx.Response(200, json=task))
+    respx.patch(f"{API}/api/tasks/1").mock(side_effect=httpx.ConnectError("refused"))
+
+    resp = client.post(
+        "/tasks/1/edit",
+        data={"title": "x", "description": "", "csrf_token": csrf},
+        follow_redirects=False,
+    )
+
+    assert resp.status_code == 200
+    assert 'data-testid="api-error"' in resp.text
+    assert "The task API is unavailable. Please try again shortly." in resp.text
+
+
+@respx.mock
+def test_edit_task_csrf_mismatch_is_403_and_makes_no_api_call(client: TestClient) -> None:
+    login(client)
+    get_route = respx.get(f"{API}/api/tasks/1").mock(
+        return_value=httpx.Response(200, json=SEEDED[0])
+    )
+    patch_route = respx.patch(f"{API}/api/tasks/1").mock(return_value=httpx.Response(200))
+
+    resp = client.post(
+        "/tasks/1/edit",
+        data={"title": "x", "csrf_token": "wrong"},
+        follow_redirects=False,
+    )
+
+    assert resp.status_code == 403
+    assert not get_route.called
+    assert not patch_route.called
+
+
+@respx.mock
+def test_edit_task_read_404_redirects_and_issues_no_patch(client: TestClient) -> None:
+    csrf = login(client)
+    respx.get(f"{API}/api/tasks/1").mock(return_value=httpx.Response(404))
+    patch = respx.patch(f"{API}/api/tasks/1").mock(return_value=httpx.Response(200))
+
+    resp = client.post(
+        "/tasks/1/edit",
+        data={"title": "x", "status": "done", "csrf_token": csrf},
+        follow_redirects=False,
+    )
+
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/?status=done"
+    assert not patch.called
+
+
+@respx.mock
+def test_edit_task_api_401_on_read_redirects_to_login(client: TestClient) -> None:
+    csrf = login(client)
+    respx.get(f"{API}/api/tasks/1").mock(return_value=httpx.Response(401))
+
+    resp = client.post(
+        "/tasks/1/edit",
+        data={"title": "x", "csrf_token": csrf},
+        follow_redirects=False,
+    )
+
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/login?next=/tasks/1/edit"
+    body = client.get("/login").text
+    assert 'data-testid="session-expired"' in body
+
+
+@respx.mock
+def test_edit_task_api_401_on_write_redirects_to_login(client: TestClient) -> None:
+    csrf = login(client)
+    task = {**SEEDED[0], "id": 1}
+    respx.get(f"{API}/api/tasks/1").mock(return_value=httpx.Response(200, json=task))
+    respx.patch(f"{API}/api/tasks/1").mock(return_value=httpx.Response(401))
+
+    resp = client.post(
+        "/tasks/1/edit",
+        data={"title": "x", "csrf_token": csrf},
+        follow_redirects=False,
+    )
+
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/login?next=/tasks/1/edit"
+
+
+@respx.mock
+def test_board_rows_carry_edit_link_preserving_filter_and_page(client: TestClient) -> None:
+    login(client)
+    mock_board()
+
+    body = client.get("/?status=todo&page=1").text
+
+    assert body.count('data-testid="edit-link"') >= 1
+    start = body.index('data-testid="edit-link"')
+    tag_start = body.rindex("<a", 0, start)
+    tag_end = body.index(">", start)
+    assert 'href="/tasks/1/edit?status=todo"' in body[tag_start:tag_end]
+
+
+@respx.mock
+def test_board_row_actions_keep_existing_order_after_edit_link(client: TestClient) -> None:
+    login(client)
+    mock_board()
+
+    body = client.get("/").text
+
+    row_start = body.index('data-testid="task-row"')
+    row_end = body.index('data-testid="task-row"', row_start + 1)
+    row = body[row_start:row_end]
+    assert row.index('data-testid="edit-link"') < row.index('data-testid="move-back-btn"')
+    assert row.index('data-testid="move-back-btn"') < row.index('data-testid="advance-btn"')
+    assert row.index('data-testid="advance-btn"') < row.index('data-testid="delete-btn"')
 
 
 # --- advance / delete ------------------------------------------------------

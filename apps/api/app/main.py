@@ -49,6 +49,11 @@ MAX_OFFSET = 2**31 - 1
 BAD_BODY = {400: {"description": "Malformed request body"}}
 NOT_FOUND = {404: {"description": "Task not found"}}
 
+# Only due_at is nullable on the row; an explicit null on any other TaskUpdate
+# field stays the no-op it has always been, rather than becoming a 500 on a
+# NOT NULL column.
+NULLABLE_UPDATE_FIELDS = frozenset({"due_at"})
+
 # Board-wide urgency order. `id` is not decoration: it makes the order total, so
 # OFFSET paging can neither duplicate nor drop a row across pages.
 URGENCY_ORDER = (nulls_last(col(Task.due_at).asc()), col(Task.id).asc())
@@ -114,7 +119,12 @@ async def update_task(
     task_id: TaskId, payload: TaskUpdate, session: SessionDep, user: CurrentUser
 ) -> Task:
     task = await _get_owned_task(session, user, task_id)
-    for key, value in payload.model_dump(exclude_unset=True, exclude_none=True).items():
+    # exclude_unset alone distinguishes "omitted" from an explicit null; only
+    # due_at is nullable, so an explicit null elsewhere is skipped rather than
+    # applied.
+    for key, value in payload.model_dump(exclude_unset=True).items():
+        if value is None and key not in NULLABLE_UPDATE_FIELDS:
+            continue
         setattr(task, key, value)
     session.add(task)
     await session.commit()

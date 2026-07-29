@@ -51,6 +51,17 @@ def board_url(status: str | None, page: int = 1) -> str:
     return f"/?{'&'.join(params)}" if params else "/"
 
 
+def edit_url(task_id: int, status: str | None = None, page: int = 1) -> str:
+    """Edit-page URL carrying the board the user came from; mirrors board_url()."""
+    params = []
+    if status:
+        params.append(f"status={status}")
+    if page != 1:
+        params.append(f"page={page}")
+    query = f"?{'&'.join(params)}" if params else ""
+    return f"/tasks/{task_id}/edit{query}"
+
+
 def empty_state(api_error: bool, active: str | None, total: int | None) -> str | None:
     """Which empty message the board shows: 'board', 'filter', or None.
 
@@ -194,6 +205,20 @@ def parse_due_at(value: str | None) -> datetime | None:
         dt = datetime.fromisoformat(value)
         return dt if dt.tzinfo else dt.replace(tzinfo=UTC)
     return None
+
+
+def local_input_value(due_at: str | None, zone: ZoneInfo) -> str:
+    """A task's RFC3339 `due_at` as the `datetime-local` value the form shows;
+    '' when the task is undated or the timestamp is unparseable."""
+    dt = parse_due_at(due_at)
+    return "" if dt is None else dt.astimezone(zone).strftime("%Y-%m-%dT%H:%M")
+
+
+def normalize_input_value(raw: str, zone: ZoneInfo) -> str:
+    """A submitted `datetime-local` value in the same canonical minute form;
+    '' when blank. Raises ValueError when unparseable."""
+    value = raw.strip()
+    return local_input_value(to_rfc3339_z(value, zone), zone) if value else ""
 
 
 def format_due_at(value: datetime, zone: ZoneInfo) -> str:
@@ -463,6 +488,7 @@ def create_app() -> FastAPI:
                 "next_url": board_url(active, current + 1),
                 "tz_name": zone.key,
                 "tz_sync": True,
+                "edit_url": edit_url,
             },
         )
 
@@ -544,6 +570,146 @@ def create_app() -> FastAPI:
                 },
             )
         return RedirectResponse(url="/", status_code=303)
+
+    @app.get("/tasks/{task_id}/edit", response_model=None)
+    async def edit_form(
+        request: Request, task_id: int, status: str | None = None, page: str | None = None
+    ) -> HTMLResponse | RedirectResponse:
+        token = require_token(request)
+        zone = resolve_zone(request.cookies.get(TZ_COOKIE))
+        active = normalize_status(status)
+        current_page = parse_page(page)
+        back = board_url(active, current_page)
+        here = edit_url(task_id, active, current_page)
+        try:
+            resp = await api(request).get(f"/api/tasks/{task_id}", headers=bearer(token))
+            if resp.status_code == 401:
+                raise SessionExpired(next_url=here)
+            if resp.status_code == 404:
+                return RedirectResponse(url=back, status_code=303)
+            resp.raise_for_status()
+        except httpx.HTTPError:
+            return templates.TemplateResponse(
+                request,
+                "edit.html",
+                {
+                    "api_error": True,
+                    "error_message": API_UNAVAILABLE_MESSAGE,
+                    "authed": True,
+                    "csrf": ensure_csrf(request),
+                    "task_id": task_id,
+                    "title": "",
+                    "description": "",
+                    "due_at": "",
+                    "status": active or "",
+                    "page": current_page,
+                    "board_url": back,
+                    "tz_name": zone.key,
+                    "tz_sync": False,
+                },
+            )
+        task = resp.json()
+        return templates.TemplateResponse(
+            request,
+            "edit.html",
+            {
+                "authed": True,
+                "csrf": ensure_csrf(request),
+                "task_id": task_id,
+                "title": task["title"],
+                "description": task["description"],
+                "due_at": local_input_value(task["due_at"], zone),
+                "status": active or "",
+                "page": current_page,
+                "board_url": back,
+                "api_error": False,
+                "tz_name": zone.key,
+                "tz_sync": True,
+            },
+        )
+
+    @app.post("/tasks/{task_id}/edit", response_model=None)
+    async def save_task(
+        request: Request,
+        task_id: int,
+        title: Annotated[str, Form()],
+        description: Annotated[str, Form()] = "",
+        due_at: Annotated[str, Form()] = "",
+        csrf_token: Annotated[str, Form()] = "",
+        status: Annotated[str, Form()] = "",
+        page: Annotated[str, Form()] = "",
+    ) -> HTMLResponse | RedirectResponse:
+        check_csrf(request, csrf_token)
+        token = require_token(request)
+        zone = resolve_zone(request.cookies.get(TZ_COOKIE))
+        active = normalize_status(status)
+        current_page = parse_page(page)
+        back = board_url(active, current_page)
+        here = edit_url(task_id, active, current_page)
+
+        def rerender(error_message: str) -> HTMLResponse:
+            return templates.TemplateResponse(
+                request,
+                "edit.html",
+                {
+                    "api_error": True,
+                    "error_message": error_message,
+                    "authed": True,
+                    "csrf": ensure_csrf(request),
+                    "task_id": task_id,
+                    "title": title,
+                    "description": description,
+                    "due_at": due_at,
+                    "status": active or "",
+                    "page": current_page,
+                    "board_url": back,
+                    "tz_name": zone.key,
+                    "tz_sync": False,
+                },
+            )
+
+        try:
+            existing = await api(request).get(f"/api/tasks/{task_id}", headers=bearer(token))
+            if existing.status_code == 401:
+                raise SessionExpired(next_url=here)
+            if existing.status_code == 404:
+                return RedirectResponse(url=back, status_code=303)
+            existing.raise_for_status()
+        except httpx.HTTPError:
+            return rerender(API_UNAVAILABLE_MESSAGE)
+
+        current = local_input_value(existing.json().get("due_at"), zone)
+        try:
+            submitted = normalize_input_value(due_at, zone)
+        except ValueError:
+            return rerender(INVALID_INPUT_MESSAGE)
+
+        payload: dict[str, object] = {"title": title, "description": description}
+        if submitted != current:
+            payload["due_at"] = to_rfc3339_z(submitted, zone) if submitted else None
+
+        try:
+            resp = await api(request).patch(
+                f"/api/tasks/{task_id}", json=payload, headers=bearer(token)
+            )
+            if resp.status_code == 401:
+                raise SessionExpired(next_url=here)
+            if resp.status_code == 404:
+                return RedirectResponse(url=back, status_code=303)
+            if resp.status_code == 422:
+                body: dict = {}
+                with suppress(ValueError):
+                    body = resp.json()
+                message = (
+                    INVALID_TITLE_MESSAGE
+                    if title_rejected(body.get("detail"))
+                    else INVALID_INPUT_MESSAGE
+                )
+                return rerender(message)
+            resp.raise_for_status()
+        except httpx.HTTPError:
+            return rerender(API_UNAVAILABLE_MESSAGE)
+        return RedirectResponse(url=back, status_code=303)
 
     @app.post("/tasks/{task_id}/advance")
     async def advance_task(
