@@ -53,8 +53,9 @@
       {% if task.overdue %}
       <span class="badge-overdue" data-testid="overdue-badge">Overdue</span>
       {% endif %}
-      {% if task.reminder_status and task.reminder_status != "none" %}
-      <span class="badge" data-testid="reminder-badge">{{ task.reminder_status }}</span>
+      {% if task.reminder %}
+      <span class="badge badge-reminder-{{ task.reminder.state }}"
+            data-testid="reminder-badge">{{ task.reminder.label }}</span>
       {% endif %}
       <div class="actions">
         <a class="btn-edit" data-testid="edit-link"

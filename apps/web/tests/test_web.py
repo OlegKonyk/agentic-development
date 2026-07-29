@@ -34,6 +34,7 @@ from web.main import (
     normalize_status,
     parse_due_at,
     parse_page,
+    reminder_badge,
     reminder_health_url,
     resolve_zone,
     safe_next,
@@ -642,7 +643,194 @@ def test_index_due_at_and_reminder_badge_render_only_when_set(client: TestClient
     assert body.count('data-testid="due-at"') == 1
     assert format_due_at(parse_due_at(SEEDED[1]["due_at"]), UTC_ZONE) in body
     assert body.count('data-testid="reminder-badge"') == 1
-    assert 'data-testid="reminder-badge">pending<' in body
+    assert 'data-testid="reminder-badge">Reminder sending<' in body
+
+
+def test_reminder_badge_helper_table() -> None:
+    now = datetime.now(UTC)
+    future = now + timedelta(hours=1)
+    cases: list[tuple[str | None, datetime | None, dict[str, str] | None]] = [
+        ("none", future, {"state": "scheduled", "label": "Reminder scheduled"}),
+        ("none", None, None),
+        (None, None, None),
+        ("pending", future, {"state": "sending", "label": "Reminder sending"}),
+        ("pending", None, {"state": "sending", "label": "Reminder sending"}),
+        ("sent", future, {"state": "sent", "label": "Reminder sent"}),
+        ("sent", None, {"state": "sent", "label": "Reminder sent"}),
+        ("failed", future, {"state": "failed", "label": "Reminder failed"}),
+        ("failed", None, {"state": "failed", "label": "Reminder failed"}),
+        ("queued", None, None),
+        ("queued", future, None),
+    ]
+    for status, due, expected in cases:
+        assert reminder_badge(status, due) == expected, f"status={status!r} due={due!r}"
+
+
+@respx.mock
+def test_index_dated_task_with_no_attempt_shows_scheduled_badge(client: TestClient) -> None:
+    login(client)
+    respx.get(f"{API}/api/auth/me").mock(return_value=httpx.Response(200, json=ME))
+    task = {**SEEDED[0], "id": 41, "title": "Not yet attempted", "due_at": iso_in(3600)}
+    respx.get(f"{API}/api/tasks").mock(return_value=httpx.Response(200, json=page_body([task])))
+    mock_health()
+
+    body = client.get("/").text
+
+    assert body.count('data-testid="reminder-badge"') == 1
+    assert 'data-testid="reminder-badge">Reminder scheduled<' in body
+
+
+@respx.mock
+def test_index_renders_distinct_plain_language_badge_per_state(client: TestClient) -> None:
+    login(client)
+    respx.get(f"{API}/api/auth/me").mock(return_value=httpx.Response(200, json=ME))
+    tasks = [
+        {
+            **SEEDED[0],
+            "id": 51,
+            "title": "Scheduled",
+            "due_at": iso_in(3600),
+            "reminder_status": "none",
+        },
+        {
+            **SEEDED[0],
+            "id": 52,
+            "title": "Sending",
+            "due_at": iso_in(3600),
+            "reminder_status": "pending",
+        },
+        {**SEEDED[0], "id": 53, "title": "Sent", "due_at": iso_in(3600), "reminder_status": "sent"},
+        {
+            **SEEDED[0],
+            "id": 54,
+            "title": "Failed",
+            "due_at": iso_in(3600),
+            "reminder_status": "failed",
+        },
+    ]
+    respx.get(f"{API}/api/tasks").mock(return_value=httpx.Response(200, json=page_body(tasks)))
+    mock_health()
+
+    body = client.get("/").text
+
+    assert body.count('data-testid="reminder-badge"') == 4
+    labels = ["Reminder scheduled", "Reminder sending", "Reminder sent", "Reminder failed"]
+    for label in labels:
+        assert f'data-testid="reminder-badge">{label}<' in body
+    assert len(set(labels)) == len(labels)
+    for raw in (">none<", ">pending<", ">sent<", ">failed<"):
+        assert raw not in body
+
+
+@respx.mock
+def test_index_badge_survives_cleared_due_date(client: TestClient) -> None:
+    login(client)
+    respx.get(f"{API}/api/auth/me").mock(return_value=httpx.Response(200, json=ME))
+    tasks = [
+        {
+            **SEEDED[0],
+            "id": 61,
+            "title": "Cleared pending",
+            "due_at": None,
+            "reminder_status": "pending",
+        },
+        {**SEEDED[0], "id": 62, "title": "Cleared sent", "due_at": None, "reminder_status": "sent"},
+        {
+            **SEEDED[0],
+            "id": 63,
+            "title": "Cleared failed",
+            "due_at": None,
+            "reminder_status": "failed",
+        },
+    ]
+    respx.get(f"{API}/api/tasks").mock(return_value=httpx.Response(200, json=page_body(tasks)))
+    mock_health()
+
+    body = client.get("/").text
+
+    assert body.count('data-testid="reminder-badge"') == 3
+    assert 'data-testid="reminder-badge">Reminder sending<' in body
+    assert 'data-testid="reminder-badge">Reminder sent<' in body
+    assert 'data-testid="reminder-badge">Reminder failed<' in body
+    assert body.count('data-testid="due-at"') == 0
+
+
+@respx.mock
+def test_index_overdue_undelivered_task_shows_scheduled_badge(client: TestClient) -> None:
+    login(client)
+    respx.get(f"{API}/api/auth/me").mock(return_value=httpx.Response(200, json=ME))
+    task = {
+        **SEEDED[0],
+        "id": 71,
+        "title": "Overdue, never attempted",
+        "due_at": "2020-01-01T00:00:00Z",
+        "reminder_status": "none",
+    }
+    respx.get(f"{API}/api/tasks").mock(return_value=httpx.Response(200, json=page_body([task])))
+    mock_health()
+
+    body = client.get("/").text
+
+    assert body.count('data-testid="overdue-badge"') == 1
+    assert body.count('data-testid="reminder-badge"') == 1
+    assert 'data-testid="reminder-badge">Reminder scheduled<' in body
+
+
+@respx.mock
+def test_index_unknown_reminder_status_renders_no_badge(client: TestClient) -> None:
+    login(client)
+    respx.get(f"{API}/api/auth/me").mock(return_value=httpx.Response(200, json=ME))
+    task = {**SEEDED[0], "id": 81, "title": "Unknown status", "reminder_status": "queued"}
+    respx.get(f"{API}/api/tasks").mock(return_value=httpx.Response(200, json=page_body([task])))
+    mock_health()
+
+    body = client.get("/").text
+
+    assert body.count('data-testid="reminder-badge"') == 0
+    assert "queued" not in body
+
+
+@respx.mock
+def test_reminder_badges_and_degraded_banner_coexist(client: TestClient) -> None:
+    login(client)
+    respx.get(f"{API}/api/auth/me").mock(return_value=httpx.Response(200, json=ME))
+    task = {
+        **SEEDED[0],
+        "id": 91,
+        "title": "Degraded coexist",
+        "due_at": iso_in(3600),
+        "reminder_status": "pending",
+    }
+    respx.get(f"{API}/api/tasks").mock(return_value=httpx.Response(200, json=page_body([task])))
+    mock_health(return_value=httpx.Response(200, json={"state": "degraded"}))
+
+    body = client.get("/").text
+
+    assert 'data-testid="reminder-degraded-banner"' in body
+    assert body.count('data-testid="reminder-badge"') == 1
+    assert 'data-testid="reminder-badge">Reminder sending<' in body
+    assert body.index('data-testid="reminder-degraded-banner"') < body.index(
+        'data-testid="reminder-badge"'
+    )
+    assert DEGRADED_REMINDERS_MESSAGE in body
+
+
+@respx.mock
+def test_reminder_badge_carries_no_focus_or_role_attributes(client: TestClient) -> None:
+    login(client)
+    respx.get(f"{API}/api/auth/me").mock(return_value=httpx.Response(200, json=ME))
+    task = {**SEEDED[0], "id": 101, "title": "No focus target", "due_at": iso_in(3600)}
+    respx.get(f"{API}/api/tasks").mock(return_value=httpx.Response(200, json=page_body([task])))
+    mock_health()
+
+    body = client.get("/").text
+    start = body.index('data-testid="reminder-badge"')
+    end = body.index("</span>", start)
+    badge_markup = body[start:end]
+
+    assert "tabindex" not in badge_markup
+    assert "autofocus" not in badge_markup
+    assert "role=" not in badge_markup
 
 
 @respx.mock
@@ -747,7 +935,7 @@ def test_index_overdue_and_reminder_badges_are_independent(client: TestClient) -
 
     assert body.count('data-testid="overdue-badge"') == 1
     assert body.count('data-testid="reminder-badge"') == 1
-    assert 'data-testid="reminder-badge">pending<' in body
+    assert 'data-testid="reminder-badge">Reminder sending<' in body
 
 
 @respx.mock

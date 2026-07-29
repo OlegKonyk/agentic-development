@@ -129,6 +129,33 @@ DEGRADED_REMINDERS_MESSAGE = (
     "Reminder delivery is currently degraded — your reminders may be delayed."
 )
 
+# api reminder_status -> (css state slug, plain-language badge text)
+REMINDER_BADGES: dict[str, tuple[str, str]] = {
+    "none": ("scheduled", "Reminder scheduled"),
+    "pending": ("sending", "Reminder sending"),
+    "sent": ("sent", "Reminder sent"),
+    "failed": ("failed", "Reminder failed"),
+}
+
+
+def reminder_badge(reminder_status: str | None, due: datetime | None) -> dict[str, str] | None:
+    """Presentation dict for the per-row reminder badge, or None to render nothing.
+
+    `none` only earns a badge when the task is dated — that's the "scheduled"
+    state, the one that renders nothing today. Any attempted state (`pending`,
+    `sent`, `failed`) always shows, even after the due date is cleared, so
+    clearing a due date never erases the record of an attempt. An unrecognised
+    status renders nothing rather than leaking a raw enum onto the page.
+    """
+    status = reminder_status or "none"
+    if status == "none" and due is None:
+        return None
+    row = REMINDER_BADGES.get(status)
+    if row is None:
+        return None
+    state, label = row
+    return {"state": state, "label": label}
+
 
 def reminder_health_url(api_base_url: str) -> str:
     """Origin for the health call. `REMINDER_HEALTH_BASE_URL` (test profile) routes it
@@ -260,6 +287,7 @@ def decorate_tasks(tasks: list[dict], now: datetime, zone: ZoneInfo) -> list[dic
         due = parse_due_at(task.get("due_at"))
         task["due_label"] = format_due_at(due, zone) if due else None
         task["overdue"] = due is not None and due < now
+        task["reminder"] = reminder_badge(task.get("reminder_status"), due)
         decorated.append((due or UNDATED, task.get("id") or 0, task))
     decorated.sort(key=lambda item: item[:2])
     return [task for _, _, task in decorated]
