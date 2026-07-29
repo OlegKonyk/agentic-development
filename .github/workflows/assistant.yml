@@ -17,7 +17,18 @@ permissions:
 
 jobs:
   claude:
-    if: contains(github.event.comment.body, '@claude')
+    # Three conditions, not one. The mention alone is not enough:
+    #   * Bot-authored comments are excluded so the pipeline cannot chain into
+    #     this workflow — phase comments are posted with the App token (whose
+    #     events are NOT suppressed), and agent prose can contain anything,
+    #     including the literal string '@claude'.
+    #   * author_association gates the repo: this is a PUBLIC repository, and
+    #     without the check any GitHub user could start a 30-turn agent run
+    #     with contents/issues/pull-requests write on the owner's subscription.
+    if: >-
+      contains(github.event.comment.body, '@claude')
+      && github.event.comment.user.type != 'Bot'
+      && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
