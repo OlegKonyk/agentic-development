@@ -186,8 +186,18 @@ error banner `login-error`), `POST /login` (CSRF-checked; success → 303 `/`),
 *viewer's* time zone, zone named as an IANA id in parentheses, e.g.
 `25 Aug 2026, 17:00 (Europe/Berlin)` (`(UTC)` when the zone can't be
 resolved), instead of the raw RFC3339 timestamp, and is present only when the
-task has a `due_at`; `reminder-badge` when status ≠ none; new
-`overdue-badge` per row, present only when `due_at` is strictly in the past
+task has a `due_at`; `reminder-badge` present when the task has a `due_at` OR
+`reminder_status` ≠ `none` (absent from the DOM, not merely hidden, otherwise,
+and also when `reminder_status` carries a value the web layer doesn't
+recognise), plain-language text — never the raw enum — one of exactly
+`Reminder scheduled` (dated, `reminder_status: none`), `Reminder sending`
+(`pending`), `Reminder sent` (`sent`), `Reminder failed` (`failed`); a dated
+task shows `Reminder scheduled` whether or not it is overdue, and once a
+reminder has been attempted (`pending`/`sent`/`failed`) the badge survives the
+due date being cleared to null; independent of `overdue-badge` and of
+`reminder-degraded-banner` (all three can render on the same row/page at
+once); new `overdue-badge` per row, present only when `due_at` is strictly in
+the past
 (absent from the DOM otherwise, not merely hidden); within each column, rows
 are ordered by soonest `due_at` first, undated tasks last, ascending task id
 as tie-break — ordering and the overdue flag compare aware UTC instants and

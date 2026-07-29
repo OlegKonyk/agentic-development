@@ -6,7 +6,7 @@ import re
 
 import pytest
 from playwright.sync_api import Browser, Page, expect
-from qa_helpers import ApiClient, alice_credentials
+from qa_helpers import ApiClient, alice_credentials, rfc3339_in
 
 
 def _form_controls(page: Page, form_selector: str) -> list[str]:
@@ -340,3 +340,26 @@ def test_row_action_focus_order(alice_api: ApiClient, alice_page: Page) -> None:
         f"row action focus order was {observed}, expected {row_actions} (full sequence: {seq})"
     )
     expect(row.get_by_test_id("move-back-btn")).to_be_visible()
+
+
+def test_reminder_badges_add_no_landmark_or_focus_target(
+    alice_api: ApiClient, alice_page: Page
+) -> None:
+    alice_api.create_task("Badge a11y check", due_at=rfc3339_in(3600))
+    alice_page.goto("/")
+
+    badge = (
+        alice_page.get_by_test_id("task-row")
+        .filter(has_text="Badge a11y check")
+        .get_by_test_id("reminder-badge")
+    )
+    expect(badge).to_have_count(1)
+    expect(badge).not_to_have_attribute("tabindex", re.compile(".*"))
+    expect(badge).not_to_have_attribute("autofocus", re.compile(".*"))
+    expect(badge).not_to_have_attribute("role", re.compile(".*"))
+
+    expect(alice_page.get_by_role("banner")).to_have_count(1)
+    expect(alice_page.get_by_role("main")).to_have_count(1)
+
+    seq = _tab_sequence(alice_page)
+    assert "reminder-badge" not in seq
