@@ -1,0 +1,289 @@
+<title>SDLC Lab — How the machine works</title>
+<style>
+  :root {
+    color-scheme: light;
+    --paper: #f9f9f7; --surface: #fcfcfb; --raised: #f2f1ed;
+    --ink: #0b0b0b; --ink-2: #52514e; --muted: #898781;
+    --hairline: #e1e0d9; --baseline: #c3c2b7;
+    --accent: #2a78d6; --accent-soft: rgba(42,120,214,0.09);
+    --human: #7a3fb8; --human-soft: rgba(122,63,184,0.10);
+    --good: #0ca30c; --good-text: #006300; --serious: #ec835a; --critical: #d03b3b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --paper: #0d0d0d; --surface: #1a1a19; --raised: #232321;
+      --ink: #ffffff; --ink-2: #c3c2b7; --muted: #898781;
+      --hairline: #2c2c2a; --baseline: #383835;
+      --accent: #3987e5; --accent-soft: rgba(57,135,229,0.14);
+      --human: #b38ee8; --human-soft: rgba(179,142,232,0.14); --good-text: #0ca30c;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --paper: #0d0d0d; --surface: #1a1a19; --raised: #232321;
+    --ink: #ffffff; --ink-2: #c3c2b7; --muted: #898781;
+    --hairline: #2c2c2a; --baseline: #383835;
+    --accent: #3987e5; --accent-soft: rgba(57,135,229,0.14);
+    --human: #b38ee8; --human-soft: rgba(179,142,232,0.14); --good-text: #0ca30c;
+  }
+  :root[data-theme="light"] {
+    color-scheme: light;
+    --paper: #f9f9f7; --surface: #fcfcfb; --raised: #f2f1ed;
+    --ink: #0b0b0b; --ink-2: #52514e; --muted: #898781;
+    --hairline: #e1e0d9; --baseline: #c3c2b7;
+    --accent: #2a78d6; --accent-soft: rgba(42,120,214,0.09);
+    --human: #7a3fb8; --human-soft: rgba(122,63,184,0.10); --good-text: #006300;
+  }
+
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--paper); color: var(--ink);
+    font: 400 15.5px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .wrap { max-width: 940px; margin: 0 auto; padding: 44px 22px 90px; }
+  .prose { max-width: 74ch; }
+  p { margin: 0 0 13px; text-wrap: pretty; }
+  small, .small { font-size: 13px; color: var(--ink-2); }
+
+  .eyebrow { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11.5px;
+    letter-spacing: 0.14em; text-transform: uppercase; color: var(--accent); margin: 0 0 12px; }
+  h1 { font-family: "Iowan Old Style", "Palatino Linotype", Charter, Georgia, serif;
+    font-weight: 600; font-size: clamp(28px, 4.8vw, 38px); line-height: 1.13;
+    margin: 0 0 13px; letter-spacing: -0.01em; text-wrap: balance; }
+  h2 { font-family: "Iowan Old Style", "Palatino Linotype", Charter, Georgia, serif;
+    font-weight: 600; font-size: 23px; margin: 0 0 8px; text-wrap: balance; }
+  h3 { font-size: 15px; font-weight: 650; margin: 22px 0 6px; }
+  .dek { font-size: 17px; color: var(--ink-2); max-width: 62ch; margin: 0 0 8px; text-wrap: pretty; }
+  section { margin: 46px 0 0; }
+  .sec-head { border-bottom: 1px solid var(--hairline); padding-bottom: 9px; margin-bottom: 18px; }
+
+  code, .k { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.85em; background: var(--accent-soft); padding: 1px 5px; border-radius: 4px; }
+  .plate { background: var(--surface); border: 1px solid var(--hairline);
+    border-radius: 10px; padding: 18px 20px; margin: 16px 0; }
+  .scroll-x { overflow-x: auto; }
+
+  /* the core rule callout */
+  .rule {
+    background: var(--raised); border: 1px solid var(--hairline); border-left: 3px solid var(--accent);
+    border-radius: 0 10px 10px 0; padding: 16px 18px; margin: 18px 0;
+  }
+  .rule b { color: var(--ink); }
+
+  table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+  th { text-align: left; font-family: ui-monospace, Menlo, monospace; font-size: 10.5px;
+    letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted); font-weight: 600;
+    padding: 8px 12px 8px 0; border-bottom: 1px solid var(--baseline); vertical-align: bottom; }
+  td { padding: 10px 12px 10px 0; border-bottom: 1px solid var(--hairline); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  td.mono, .mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; }
+
+  .tag { display: inline-block; font-family: ui-monospace, Menlo, monospace; font-size: 10.5px;
+    padding: 2px 7px; border-radius: 5px; white-space: nowrap; border: 1px solid var(--hairline); }
+  .tag.app { color: var(--accent); background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
+  .tag.ci { color: var(--ink-2); }
+  .tag.human { color: var(--human); background: var(--human-soft); border-color: color-mix(in srgb, var(--human) 40%, transparent); }
+
+  /* technique families */
+  .fam { background: var(--surface); border: 1px solid var(--hairline); border-radius: 10px;
+    padding: 16px 18px; margin: 0 0 11px; }
+  .fam h3 { margin: 0 0 3px; font-size: 15.5px; }
+  .fam .protects { font-size: 12.5px; color: var(--muted); font-family: ui-monospace, Menlo, monospace;
+    text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 9px; }
+  .fam ul { margin: 0; padding-left: 18px; }
+  .fam li { font-size: 14px; margin-bottom: 6px; color: var(--ink-2); }
+  .fam li b { color: var(--ink); font-weight: 600; }
+
+  .layers { display: grid; gap: 8px; margin: 14px 0; }
+  .layer { display: grid; grid-template-columns: 90px 1fr; gap: 14px; align-items: start;
+    padding: 11px 14px; border: 1px solid var(--hairline); border-radius: 9px; background: var(--surface); }
+  .layer .n { font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.07em; padding-top: 2px; }
+  .layer .b { font-size: 14px; }
+  .layer .b b { display: block; margin-bottom: 2px; }
+  .layer.weak { border-style: dashed; }
+
+  footer { margin-top: 56px; border-top: 1px solid var(--hairline); padding-top: 16px;
+    font-size: 13px; color: var(--ink-2); }
+
+  .flow { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 11px; line-height: 1.45; white-space: pre; overflow-x: auto;
+    margin: 0; color: var(--ink-2); }
+</style>
+
+<div class="wrap">
+
+<p class="eyebrow">agentic-development · system map · triggers &amp; techniques</p>
+<h1>How the machine actually works</h1>
+<p class="dek prose">Every phase of this pipeline is started by one thing: <b>a label appearing on an issue or a pull request</b>. There is no scheduler driving the flow, no queue, no orchestrator process. The state lives in GitHub's labels, and the transitions are shell scripts.</p>
+<p class="prose small">This page is the mechanical explanation — what fires what, and which technique defends against which failure. Everything here was extracted from the repository itself, not from memory: 9 workflows, 10 jobs, 74 distinct guards.</p>
+
+<section>
+  <div class="sec-head"><h2>The one rule that makes it safe</h2></div>
+  <div class="rule prose">
+    <p><b>Label events written by the GitHub App chain to the next phase. Label events written by the default CI token do not.</b></p>
+    <p style="margin-bottom:0">GitHub deliberately suppresses workflow events caused by <code>GITHUB_TOKEN</code>, to stop CI from triggering itself forever. This pipeline turns that suppression into a design tool: anything that <i>should</i> advance the state machine is written with the App token; anything that must <i>not</i> — commit statuses, cost comments, verdict comments, retro proposals — is written with the ordinary CI token. The asymmetry is the engine.</p>
+  </div>
+  <p class="prose">The cost of that power is that App-token events get <b>no</b> recursion suppression at all, so loop safety is hand-built: every phase is name-guarded to a single label, every transition removes the inbound label in the same step that adds the outbound one, a timeline counter aborts a runaway ticket, and a lint proves the label graph is acyclic apart from one sanctioned cycle.</p>
+</section>
+
+<section>
+  <div class="sec-head"><h2>Triggers — what fires what</h2></div>
+  <div class="plate scroll-x">
+<pre class="flow">  HUMAN                    APP TOKEN chains ──▶            CI TOKEN chains nothing
+  ─────                    ────────────────────            ─────────────────────
+  adds stage:spec ──▶ phase-product ──▶ phase-design ──▶ phase-dev (implement)
+                           │                                      │
+                    (blocking question)                    opens PR + qa-ready
+                           ▼                                      │
+                      needs-human                                 ▼
+                                              ┌──────────▶  phase-qa  ──────────┐
+                                              │                 │               │
+                                       phase-dev (rework) ◀─ qa-failed     qa-passed
+                                              │                                 │
+                                              └── qa-ready ──┘                  ▼
+                                                                        HUMAN MERGES
+                                                                                │
+                                                          push to main ──▶ deploy
+                                                                                │
+                                                                    deployed ──▶ phase-retro
+                                                                                │
+                                                              files stage:idea (chains NOTHING)
+                                                                                │
+                                                                    human decides ──▶ back to top
+
+  ci          ◀── pull_request (any) · push to main        · required status
+  nightly-fuzz ◀── schedule 03:17                          · never gates a PR</pre>
+  </div>
+
+  <div class="plate scroll-x">
+    <table>
+      <thead><tr><th>Job</th><th>Fires on</th><th>On success it writes</th><th>Token</th></tr></thead>
+      <tbody>
+        <tr><td><b>product</b><br><span class="small">spec + draft ACs</span></td><td class="mono">issues.labeled<br>== stage:spec</td><td>→ <code>stage:design</code>, or parks at <code>needs-human</code> if the spec carries a <i>blocking</i> open question</td><td><span class="tag app">App</span></td></tr>
+        <tr><td><b>design</b><br><span class="small">final AC-1..n</span></td><td class="mono">issues.labeled<br>== stage:design</td><td>→ <code>stage:dev</code></td><td><span class="tag app">App</span></td></tr>
+        <tr><td><b>implement</b><br><span class="small">branch, code, tests, PR</span></td><td class="mono">issues.labeled<br>== stage:dev</td><td>opens a PR with <code>Fixes #N</code>, labels it <code>qa-ready</code>, moves the issue → <code>stage:qa</code></td><td><span class="tag app">App</span></td></tr>
+        <tr><td><b>qa</b><br><span class="small">tier-1 suites + agent</span></td><td class="mono">pull_request.labeled<br>== qa-ready</td><td>a per-SHA <code>qa/agent-verdict</code> status, then → <code>qa-passed</code> / <code>qa-failed</code> / <code>needs-human</code></td><td><span class="tag app">App</span></td></tr>
+        <tr><td><b>rework</b><br><span class="small">fix the findings</span></td><td class="mono">pull_request.labeled<br>== qa-failed</td><td>pushes commits, → <code>qa-ready</code> (max 3 cycles)</td><td><span class="tag app">App</span></td></tr>
+        <tr><td><b>ci</b><br><span class="small">lint, tests, typecheck</span></td><td class="mono">pull_request (any)<br>push to main</td><td>a required status; blocks the merge button</td><td><span class="tag ci">CI</span></td></tr>
+        <tr><td><b>deploy</b><br><span class="small">gateway + close-out</span></td><td class="mono">push to main</td><td>issue → <code>stage:done</code> + <code>deployed</code></td><td><span class="tag app">App</span></td></tr>
+        <tr><td><b>retro</b><br><span class="small">advisory analyst</span></td><td class="mono">issues.labeled<br>== deployed</td><td>a retro comment + ≤2 <code>stage:idea</code> proposals — deliberately on the CI token, so they chain <b>nothing</b></td><td><span class="tag ci">CI</span></td></tr>
+        <tr><td><b>nightly-fuzz</b><br><span class="small">unbounded property fuzzing</span></td><td class="mono">schedule 03:17</td><td>files a bug on failure; never gates a PR</td><td><span class="tag ci">CI</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="small prose">Two moments are human by construction: applying the entry label (which starts spend) and pressing merge (which ships code). Everything between them runs unattended.</p>
+</section>
+
+<section>
+  <div class="sec-head"><h2>Techniques, by what they defend against</h2></div>
+
+  <div class="fam">
+    <h3>Making a model's output safe to act on</h3>
+    <p class="protects">against: parsing free text for control flow</p>
+    <ul>
+      <li><b>Schema-validated structured output.</b> Every phase returns JSON validated against a file in <code>ci/claude/schemas/</code>. No structured output ⇒ the phase exits non-zero and the ticket parks. Free text is never parsed for a decision.</li>
+      <li><b>The model never chooses a transition.</b> Agents produce <i>content</i>; deterministic YAML and shell decide what happens next. This is the design thesis the whole experiment tests.</li>
+      <li><b>Evidence over assertion.</b> A QA <code>fail</code> without reproduction steps is downgraded to <code>blocked</code> automatically — an unevidenced failure parks for a human instead of triggering rework.</li>
+      <li><b>Substitution must be declared.</b> If QA verifies an acceptance criterion with an easier scenario, it must say so and name the tier-1 test covering the literal case.</li>
+    </ul>
+  </div>
+
+  <div class="fam">
+    <h3>Making the gate honest</h3>
+    <p class="protects">against: a green light that hasn't earned it</p>
+    <ul>
+      <li><b>Two tiers, one deterministic decision.</b> Tier 1 is ordinary test suites; tier 2 is the agent. The gate rule is in YAML: tier-1 green <i>and</i> agent verdict <code>pass</code> ⇒ pass. <b>Any tier-1 failure outranks the agent's opinion</b> — that has fired for real, on a run where the agent argued the failure was out of scope.</li>
+      <li><b>Statuses are per-SHA.</b> Push after QA and the new commit has no verdict, so the merge re-blocks by construction. New code must earn a new verdict.</li>
+      <li><b>Branch protection requires both</b> <code>ci</code> and <code>qa/agent-verdict</code>. The merge button is a human gate over machine-verified state.</li>
+      <li><b>Determinism where it's claimed.</b> The contract tier no longer generates random inputs at gate time — it replays a committed corpus, and a schema-digest drift check fails loudly. Unbounded fuzzing moved to a nightly job that gates nothing.</li>
+    </ul>
+  </div>
+
+  <div class="fam">
+    <h3>Keeping agents inside their lane</h3>
+    <p class="protects">against: an agent editing the rules that govern it</p>
+    <ul>
+      <li><b>Three layers, deliberately redundant</b> — see below. The pipeline's own charters, scripts and workflows are off-limits to every agent.</li>
+      <li><b>Credential-less checkouts.</b> Agent steps hold no token at all; only the orchestrator's own push steps authenticate.</li>
+      <li><b>No <code>workflows: write</code>.</b> The App physically cannot alter workflow files — that boundary is enforced by GitHub, not by us.</li>
+      <li><b>Invariant tests over the profiles themselves.</b> A test fails the build if any phase re-introduces an arg-scoped shell allowlist, if an analysis phase gains a shell, or if a build phase loses one.</li>
+    </ul>
+  </div>
+
+  <div class="fam">
+    <h3>Not paying twice for the same fact</h3>
+    <p class="protects">against: burning budget rediscovering what we already know</p>
+    <ul>
+      <li><b>Merge-ref freshness assert.</b> GitHub computes a PR's merge ref lazily and a label event doesn't refresh it, so QA could test a stale base. The job now compares the merge commit's parent to the live <code>main</code> tip and refuses to spend if they differ.</li>
+      <li><b>Repeat-failure guard.</b> Signs each run with the tested <i>tree</i>, the suite outcomes and the exact failing tests. An identical failure on an identical tree that was already triaged as environmental skips the agent and escalates to a human. It can only ever move the gate toward a human — never toward a pass.</li>
+      <li><b>Capacity precheck.</b> Counts collected e2e tests before the stack boots and compares demand against the gateway's request budget, so suite growth can't masquerade as product failures.</li>
+    </ul>
+  </div>
+
+  <div class="fam">
+    <h3>Bounding cost and runaway</h3>
+    <p class="protects">against: an agent looping, or a ticket looping</p>
+    <ul>
+      <li><b>Per-phase turn and dollar caps.</b> Analysis phases get 30 turns / $3; build phases 120 turns and $8–12. The QA cap is now a repo variable, so raising it for an unusually large ticket is an operational decision rather than a code change.</li>
+      <li><b>Loop guards on the timeline.</b> A counter over label events aborts past a ceiling — 20 for a ticket overall, and just <b>3</b> for the QA↔rework cycle, which is deliberately tight.</li>
+      <li><b>Concurrency groups per ticket</b> and job timeouts, so two runs of the same phase can't race.</li>
+      <li><b>Triage rule, written down:</b> on a turn-cap overrun, read the permission denials <i>first</i>. Repeated denials mean a stuck agent — fix the sandbox. Zero denials with steady progress means the work outgrew the cap. Never raise the ceiling on a stuck agent.</li>
+    </ul>
+  </div>
+
+  <div class="fam">
+    <h3>Letting the system improve itself, safely</h3>
+    <p class="protects">against: a self-modifying loop with no human in it</p>
+    <ul>
+      <li><b>The retro phase is advisory.</b> It reads a shipped ticket's whole trajectory and drafts the lesson plus ≤2 proposals. It blocks nothing, transitions nothing, and a failure posts a comment instead of parking the ticket.</li>
+      <li><b>The loop cannot close itself.</b> Proposals are filed on the CI token as <code>stage:idea</code>, which triggers no phase. They enter the pipeline only when a human applies the entry label.</li>
+      <li><b>It dedupes against the open backlog</b> — an earlier version filed the same idea three times because it had no memory across runs.</li>
+      <li><b>Cost telemetry everywhere.</b> Every phase posts turns and dollars onto the ticket, and a metrics script computes lead time, rework, parks and spend straight from GitHub events — no surveys anywhere in the measurement path.</li>
+    </ul>
+  </div>
+</section>
+
+<section>
+  <div class="sec-head"><h2>The privileged-path boundary, in three layers</h2></div>
+  <p class="prose">Worth showing separately, because the ordering is the lesson: the first two layers are advisory and the third is the one that actually holds. An agent once edited the QA agent's own charter by walking straight through the first two.</p>
+  <div class="layers">
+    <div class="layer weak"><div class="n">Layer 1 · prompt</div><div class="b"><b>The skill says don't.</b> Both dev skills name <code>.github/</code>, <code>ci/claude/</code> and <code>scripts/</code> as off-limits and tell the agent to escalate such findings instead. <span class="small">Advisory. One skill lacked the sentence, and its agent edited the charter.</span></div></div>
+    <div class="layer weak"><div class="n">Layer 2 · permission</div><div class="b"><b>Deny rules block the edit tools.</b> Repo-relative <code>Edit()</code> and <code>Write()</code> denials on those paths. <span class="small">Advisory in practice: the patterns were once written with a leading <code>//</code>, which means filesystem-root, so every rule silently matched nothing.</span></div></div>
+    <div class="layer"><div class="n">Layer 3 · deterministic</div><div class="b"><b>A diff check before every push.</b> If any new agent commit touches those paths — or the working tree under them is dirty, since a child process can write without committing — the job fails and the ticket parks. <span class="small">This is the one that holds. It cannot be talked out of it.</span></div></div>
+  </div>
+</section>
+
+<section>
+  <div class="sec-head"><h2>Every guard has an incident behind it</h2></div>
+  <p class="prose">Almost nothing here was designed up front. The pipeline ran, something went wrong, and the fix became a mechanism. This table is the scar tissue — and it's the most transferable part of the project, because these failures are not specific to this app.</p>
+  <div class="plate scroll-x">
+    <table>
+      <thead><tr><th>What happened</th><th>What now exists because of it</th></tr></thead>
+      <tbody>
+        <tr><td>A QA agent burned 100 turns fighting its own sandbox — arg-scoped shell rules auto-denied every compound command it wrote</td><td>Broad shell + a deny-list for build phases, and the <b>denials-first triage rule</b></td></tr>
+        <tr><td>The same defect was later found still live in a sibling phase, costing a full run</td><td><b>Invariant tests</b> over every phase's tool profile</td></tr>
+        <tr><td>A rework agent edited the QA agent's own charter, because the deny rules were silently dead</td><td>The <b>three-layer boundary</b> and its deterministic third layer</td></tr>
+        <tr><td>QA spent a full run testing a merge ref computed against stale <code>main</code></td><td>The <b>freshness assert</b> — which later prevented an identical waste, at zero cost</td></tr>
+        <tr><td>Two consecutive QA runs paid full price to reach the same conclusion about the same environmental flake</td><td>The <b>repeat-failure guard</b></td></tr>
+        <tr><td>The e2e suite outgrew the gateway's fixed request budget; 429s looked like product bugs</td><td>The <b>capacity precheck</b>, anchored on the measured breaking point</td></tr>
+        <tr><td>A green contract run passed on byte-identical code that had failed minutes earlier</td><td><b>Corpus replay</b> — determinism by construction rather than by configuration</td></tr>
+        <tr><td>Dev-phase cost never appeared on any ticket; the retro flagged the symptom three times without finding the cause</td><td>The missing <b>write permission</b>, and telemetry that warns instead of failing silently</td></tr>
+        <tr><td>A human answer to a spec's open question raced the design phase that was already running</td><td><b>Blocking questions</b> park the ticket instead of advancing</td></tr>
+        <tr><td>Four separate retro runs filed the same proposal</td><td>Retro <b>dedupes</b> against the open backlog, capped at two</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="prose">
+  <div class="sec-head"><h2>If you're joining this</h2></div>
+  <p>Three things explain most of the design:</p>
+  <p><b>Prose is not a boundary.</b> Every rule that lives only in an agent's instructions will eventually be walked through — not maliciously, just by an agent doing its job under different wording. If a rule matters, it needs a deterministic step that fails the build.</p>
+  <p><b>Verify against the environment, not the description.</b> Guards written by reasoning about behaviour have been wrong roughly as often as they've been right; guards verified by running them against real artifacts have held. Two separate guards in this repo were themselves broken on arrival and only caught by executing them.</p>
+  <p><b>Cheap to reverse is the useful question.</b> Not "is this important" but "what does it cost to undo." That distinction decides which questions an agent may settle alone and which must stop and wait for a person — and it's the one the pipeline is still learning to encode.</p>
+</section>
+
+<footer>
+  Extracted from the repository at <code>github.com/OlegKonyk/agentic-development</code> — 9 workflows, 10 jobs, 74 guards. The binding specification is <code>docs/sdlc.md</code>; the incident record is <code>docs/learning-log.md</code>.
+</footer>
+</div>

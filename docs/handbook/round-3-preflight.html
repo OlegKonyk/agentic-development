@@ -1,0 +1,416 @@
+<title>Round 2 Pre-flight — your items</title>
+<style>
+  :root {
+    color-scheme: light;
+    --paper: #f9f9f7; --surface: #fcfcfb; --ink: #0b0b0b; --ink-2: #52514e;
+    --muted: #898781; --hairline: #e1e0d9; --baseline: #c3c2b7;
+    --accent: #2a78d6; --accent-soft: rgba(42,120,214,0.09);
+    --good: #0ca30c; --good-text: #006300; --serious: #ec835a; --critical: #d03b3b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --paper: #0d0d0d; --surface: #1a1a19; --ink: #ffffff; --ink-2: #c3c2b7;
+      --muted: #898781; --hairline: #2c2c2a; --baseline: #383835;
+      --accent: #3987e5; --accent-soft: rgba(57,135,229,0.14); --good-text: #0ca30c;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --paper: #0d0d0d; --surface: #1a1a19; --ink: #ffffff; --ink-2: #c3c2b7;
+    --muted: #898781; --hairline: #2c2c2a; --baseline: #383835;
+    --accent: #3987e5; --accent-soft: rgba(57,135,229,0.14); --good-text: #0ca30c;
+  }
+  :root[data-theme="light"] {
+    color-scheme: light;
+    --paper: #f9f9f7; --surface: #fcfcfb; --ink: #0b0b0b; --ink-2: #52514e;
+    --muted: #898781; --hairline: #e1e0d9; --baseline: #c3c2b7;
+    --accent: #2a78d6; --accent-soft: rgba(42,120,214,0.09); --good-text: #006300;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--paper); color: var(--ink);
+    font: 400 15.5px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 44px 22px 88px; }
+
+  .eyebrow {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 11.5px; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--accent); margin: 0 0 12px;
+  }
+  h1 {
+    font-family: "Iowan Old Style", "Palatino Linotype", Charter, Georgia, serif;
+    font-weight: 600; font-size: clamp(27px, 4.6vw, 36px); line-height: 1.14;
+    margin: 0 0 12px; letter-spacing: -0.01em; text-wrap: balance;
+  }
+  h2 {
+    font-family: "Iowan Old Style", "Palatino Linotype", Charter, Georgia, serif;
+    font-weight: 600; font-size: 22px; margin: 0 0 6px; text-wrap: balance;
+  }
+  .dek { font-size: 16.5px; color: var(--ink-2); margin: 0 0 22px; max-width: 62ch; text-wrap: pretty; }
+  p { margin: 0 0 12px; text-wrap: pretty; }
+  small, .small { font-size: 13px; color: var(--ink-2); }
+  section { margin: 44px 0 0; }
+  .sec-head { border-bottom: 1px solid var(--hairline); padding-bottom: 10px; margin-bottom: 18px; }
+
+  /* progress */
+  .progress-wrap {
+    position: sticky; top: 0; z-index: 5; background: var(--paper);
+    padding: 10px 0 12px; border-bottom: 1px solid var(--hairline); margin-bottom: 8px;
+  }
+  .bar { height: 6px; border-radius: 999px; background: var(--hairline); overflow: hidden; }
+  .bar span { display: block; height: 100%; width: 0; background: var(--accent); transition: width .25s; }
+  @media (prefers-reduced-motion: reduce) { .bar span { transition: none; } }
+  .progress-label {
+    display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
+    font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px;
+    color: var(--ink-2); margin-bottom: 7px;
+  }
+
+  /* task cards */
+  .task {
+    background: var(--surface); border: 1px solid var(--hairline);
+    border-radius: 10px; padding: 15px 17px; margin: 0 0 10px;
+    display: grid; grid-template-columns: 22px 1fr; gap: 13px; align-items: start;
+  }
+  .task.done { border-color: color-mix(in srgb, var(--good) 40%, var(--hairline)); }
+  .task.done .t-title { color: var(--ink-2); text-decoration: line-through; text-decoration-color: var(--baseline); }
+  input[type="checkbox"] { width: 18px; height: 18px; margin: 2px 0 0; accent-color: var(--accent); cursor: pointer; }
+  input[type="checkbox"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .t-title { font-weight: 650; margin: 0 0 4px; }
+  .t-why { font-size: 13.5px; color: var(--ink-2); margin: 0 0 9px; }
+  .t-why b { color: var(--ink); }
+
+  /* command block with copy */
+  .cmd { position: relative; margin: 8px 0 4px; }
+  .cmd pre {
+    margin: 0; padding: 10px 74px 10px 12px; border-radius: 8px; overflow-x: auto;
+    background: var(--accent-soft); border: 1px solid var(--hairline);
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 12.5px; line-height: 1.5; color: var(--ink);
+  }
+  .copy {
+    position: absolute; top: 7px; right: 7px; border: 1px solid var(--hairline);
+    background: var(--surface); color: var(--ink-2); border-radius: 6px;
+    font: 600 11px ui-monospace, Menlo, monospace; padding: 4px 9px; cursor: pointer;
+  }
+  .copy:hover { color: var(--ink); border-color: var(--baseline); }
+  .copy:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  code {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.86em; background: var(--accent-soft); padding: 1px 5px; border-radius: 4px;
+  }
+  a { color: var(--accent); }
+  a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* decision blocks */
+  .decision {
+    background: var(--surface); border: 1px solid var(--hairline);
+    border-radius: 10px; padding: 16px 18px; margin: 0 0 12px;
+  }
+  .d-q { font-weight: 650; margin: 0 0 3px; }
+  .d-why { font-size: 13.5px; color: var(--ink-2); margin: 0 0 11px; }
+  .opts { display: flex; flex-direction: column; gap: 7px; }
+  .opt {
+    display: grid; grid-template-columns: 18px 1fr; gap: 10px; align-items: start;
+    font-size: 14px; padding: 8px 10px; border: 1px solid var(--hairline);
+    border-radius: 8px; cursor: pointer;
+  }
+  .opt:hover { border-color: var(--baseline); }
+  .opt input { margin: 2px 0 0; accent-color: var(--accent); }
+  .opt.sel { border-color: var(--accent); background: var(--accent-soft); }
+  .opt .o-sub { display: block; font-size: 12.5px; color: var(--ink-2); margin-top: 2px; }
+  .field { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 4px; }
+  .field label { font-size: 13px; color: var(--ink-2); }
+  input[type="text"], input[type="date"] {
+    background: var(--paper); color: var(--ink); border: 1px solid var(--hairline);
+    border-radius: 7px; padding: 7px 10px; font: 400 13.5px system-ui, sans-serif; min-width: 150px;
+  }
+  input[type="text"]:focus, input[type="date"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+  .flag {
+    border-left: 3px solid var(--serious); background: color-mix(in srgb, var(--serious) 9%, transparent);
+    border-radius: 0 8px 8px 0; padding: 12px 15px; margin: 14px 0; font-size: 14px;
+  }
+  .flag b { color: var(--ink); }
+
+  /* answer output */
+  .out {
+    background: var(--surface); border: 1px solid var(--accent);
+    border-radius: 10px; padding: 16px 18px; margin-top: 14px;
+  }
+  .out pre {
+    white-space: pre-wrap; word-break: break-word; margin: 10px 0 0; padding: 12px;
+    background: var(--accent-soft); border-radius: 8px; font-size: 12.5px; line-height: 1.55;
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+  }
+  .btn {
+    border: 1px solid var(--accent); background: var(--accent); color: #fff;
+    border-radius: 8px; font: 650 13px system-ui, sans-serif; padding: 9px 15px; cursor: pointer;
+  }
+  .btn.ghost { background: transparent; color: var(--accent); }
+  .btn:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  .btn-row { display: flex; gap: 9px; flex-wrap: wrap; margin-top: 12px; }
+  footer { margin-top: 56px; border-top: 1px solid var(--hairline); padding-top: 16px; font-size: 13px; color: var(--ink-2); }
+</style>
+
+<div class="wrap">
+
+<p class="eyebrow">agentic-development · round 2 · owner-only items</p>
+<h1>Your pre-flight</h1>
+<p class="dek">Nine items block the team pilot, and none of them can be done by a teammate or an agent. Work down the list — the boxes remember themselves — then hit <b>Build my answer</b> at the bottom and paste the result back to me.</p>
+
+<div class="progress-wrap">
+  <div class="progress-label"><span id="pct">0 of 9 done</span><span id="hint">boxes save automatically</span></div>
+  <div class="bar"><span id="barfill"></span></div>
+</div>
+
+<section>
+  <div class="sec-head"><h2>A · Things to do in GitHub</h2></div>
+  <p class="small">Repo: <code>OlegKonyk/agentic-development</code> · today it has exactly one collaborator (you, admin) and zero pending invitations, so all five seats need inviting.</p>
+
+  <div class="task" data-k="invite">
+    <input type="checkbox" id="c-invite" aria-labelledby="t-invite">
+    <div>
+      <p class="t-title" id="t-invite">Invite the five seats as collaborators with <code>write</code></p>
+      <p class="t-why"><b>Why:</b> applying a label is how work starts and how QA is re-driven. <code>triage</code> can label but cannot merge, and your dev manager and both developers need merge — so <code>push</code> (GitHub's name for write) is the right level for all five. Replace the usernames, then send.</p>
+      <div class="cmd"><button class="copy">copy</button><pre>for u in PM_USER DM_USER DEVA_USER DEVB_USER INFRA_USER; do
+  gh api -X PUT repos/OlegKonyk/agentic-development/collaborators/$u -f permission=push
+done</pre></div>
+      <p class="small">An invite is not access. Check acceptance with <code>gh api repos/OlegKonyk/agentic-development/invitations --jq 'length'</code> — it must read <code>0</code> with all five appearing in <code>gh api repos/OlegKonyk/agentic-development/collaborators --jq '.[].login'</code>.</p>
+    </div>
+  </div>
+
+  <div class="task" data-k="bypass">
+    <input type="checkbox" id="c-bypass" aria-labelledby="t-bypass">
+    <div>
+      <p class="t-title" id="t-bypass">Decide the break-glass path (the ledger's plan doesn't work as written)</p>
+      <p class="t-why"><b>Why:</b> orchestrator PRs touching pipeline files carry no QA verdict, so someone must be able to merge past the ruleset. The ledger says "add the dev manager as a named bypass actor" — <b>but on a user-owned repo, ruleset bypass is granted by role or GitHub App, never to an individual.</b> Pick one of the two real options in section B; this box is just to confirm you've read the constraint.</p>
+      <p class="small">Your live ruleset is <code>19701736</code> (<code>main-protection</code>), currently bypassed only by the repository-admin role — i.e. you.</p>
+    </div>
+  </div>
+
+  <div class="task" data-k="deploy">
+    <input type="checkbox" id="c-deploy" aria-labelledby="t-deploy">
+    <div>
+      <p class="t-title" id="t-deploy">Confirm deploy secrets stay out of reach</p>
+      <p class="t-why"><b>Why:</b> collaborators with write can read repository <i>variables</i> but not secrets; still, the round's rule is that the deploy path stays owner-only. Verify nothing new was added to the agent jobs.</p>
+      <div class="cmd"><button class="copy">copy</button><pre>gh secret list -R OlegKonyk/agentic-development
+gh variable list -R OlegKonyk/agentic-development</pre></div>
+      <p class="small">Expected: <code>CLAUDE_CODE_OAUTH_TOKEN</code> and <code>SDLC_APP_PRIVATE_KEY</code> as secrets; no Cloudflare deploy token unless you intend real deploys during the round.</p>
+    </div>
+  </div>
+
+  <div class="task" data-k="spend">
+    <input type="checkbox" id="c-spend" aria-labelledby="t-spend">
+    <div>
+      <p class="t-title" id="t-spend">Get each seat's spend acknowledgment in writing</p>
+      <p class="t-why"><b>Why:</b> this is the part people miss. Write access means <b>the ability to spend your Claude subscription by applying a label</b>. Nobody else can read the token, but every <code>stage:spec</code> bills you. One sentence per person, in the round-open thread, is enough.</p>
+      <p class="small">Suggested wording: <i>"I understand that labelling a ticket starts paid agent work on Oleg's subscription, and I'll apply entry labels only for tickets on the Round 2 ledger."</i></p>
+    </div>
+  </div>
+
+  <div class="task" data-k="reading">
+    <input type="checkbox" id="c-reading" aria-labelledby="t-reading">
+    <div>
+      <p class="t-title" id="t-reading">Each seat confirms they've read their playbook and the spec</p>
+      <p class="t-why"><b>Why:</b> the round measures whether the playbooks survive contact. If someone hasn't read theirs, you're measuring something else. Confirmation by name in the round-open comment.</p>
+      <p class="small">Links: <code>docs/playbooks/</code> (one file per seat), <code>docs/sdlc.md</code> (the state machine), <code>docs/lab-charter.md</code> (the method).</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="sec-head"><h2>B · Decisions only you can make</h2></div>
+
+  <div class="decision" data-k="d-bypass">
+    <p class="d-q">How should break-glass merges work?</p>
+    <p class="d-why">Individual bypass isn't available on a user-owned repo, so these are the two honest options.</p>
+    <div class="opts">
+      <label class="opt"><input type="radio" name="bypass" value="Owner keeps break-glass; DM requests it"><span><b>You keep break-glass</b><span class="o-sub">Dev manager merges normal qa-passed PRs; pipeline-file PRs come to you. Simplest, and keeps the bypass count at one person — but you become a bottleneck for pipeline fixes.</span></span></label>
+      <label class="opt"><input type="radio" name="bypass" value="DM gets maintain role + maintain-role bypass on the ruleset"><span><b>Give the dev manager <code>maintain</code> and add that role to the ruleset bypass</b><span class="o-sub">Closest to the ledger's intent. Grants bypass to the role rather than the person, so anyone later given <code>maintain</code> inherits it — acceptable at six people, worth revisiting beyond that.</span></span></label>
+    </div>
+  </div>
+
+  <div class="decision" data-k="d-window">
+    <p class="d-q">When does the window run?</p>
+    <p class="d-why">The charter freezes the ledger once it opens, so the dates go in before the first <code>stage:spec</code>. The ledger assumes 21–30 days.</p>
+    <div class="field">
+      <label for="d1">Opens</label><input type="date" id="d1">
+      <label for="d2">Closes</label><input type="date" id="d2">
+    </div>
+  </div>
+
+  <div class="decision" data-k="d-budget">
+    <p class="d-q">What is the spend ceiling?</p>
+    <p class="d-why">Bottom-up from the nine tickets is <b>$51–100</b>; the plan figure is <b>$65–85</b>. Round 1 taught that one ticket hitting an environment defect can cost double its band, and this excludes orchestrator-lane tokens.</p>
+    <div class="opts">
+      <label class="opt"><input type="radio" name="budget" value="$110 ceiling (ledger default)"><span><b>$110</b><span class="o-sub">The ledger's figure — covers the pessimistic case plus one doubled ticket.</span></span></label>
+      <label class="opt"><input type="radio" name="budget" value="$150 ceiling (roomier)"><span><b>$150</b><span class="o-sub">Room for two surprises. Costs nothing if unused; avoids a mid-round decision under pressure.</span></span></label>
+      <label class="opt"><input type="radio" name="budget" value="custom"><span><b>Something else</b><span class="o-sub">Name it in the box below.</span></span></label>
+    </div>
+    <div class="field"><label for="bcustom">If other</label><input type="text" id="bcustom" placeholder="e.g. $200, or 'stop at 6 tickets'"></div>
+  </div>
+
+  <div class="decision" data-k="d-seats">
+    <p class="d-q">Who sits in which seat?</p>
+    <p class="d-why">Role names only in the repo, but I need the mapping to address people correctly in round-open comments — and to check nobody is assigned two seats whose playbooks conflict.</p>
+    <div class="field">
+      <label for="s-pm">PM</label><input type="text" id="s-pm" placeholder="name / @handle">
+      <label for="s-dm">Dev manager</label><input type="text" id="s-dm" placeholder="name / @handle">
+    </div>
+    <div class="field">
+      <label for="s-a">Dev A</label><input type="text" id="s-a" placeholder="name / @handle">
+      <label for="s-b">Dev B</label><input type="text" id="s-b" placeholder="name / @handle">
+      <label for="s-i">Infra</label><input type="text" id="s-i" placeholder="name / @handle">
+    </div>
+    <p class="small" style="margin-top:10px">You hold QA — it's the seat the lab was built around.</p>
+  </div>
+
+  <div class="decision" data-k="d-token">
+    <p class="d-q">Can you keep the subscription quiet during the window?</p>
+    <p class="d-why">One OAuth token serves every phase. Heavy Claude Code use elsewhere competes with the pipeline and muddies the cost numbers — which is the operational reason the round runs tickets serially.</p>
+    <div class="opts">
+      <label class="opt"><input type="radio" name="token" value="Yes — no other heavy use during the window"><span><b>Yes, I'll keep it clear</b><span class="o-sub">Cleanest measurement.</span></span></label>
+      <label class="opt"><input type="radio" name="token" value="No — other use continues; declare it as noise in the brief"><span><b>No — I'll be using it for other work</b><span class="o-sub">Fine, but it gets declared as noise in the brief rather than discovered afterwards.</span></span></label>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="sec-head"><h2>C · Hand it back</h2></div>
+  <p>Fill in what you can, press the button, and paste the block into our chat. Anything you leave blank comes back as <code>TBD</code> — partial answers are useful, and I'll act on whatever is settled.</p>
+  <div class="flag"><b>One thing I'd flag:</b> the bypass constraint is a genuine defect in the ledger I wrote, found while building this page. Whichever option you pick, I'll correct the ledger to match reality before the window opens.</div>
+  <div class="btn-row">
+    <button class="btn" id="build">Build my answer</button>
+    <button class="btn ghost" id="reset">Clear saved state</button>
+  </div>
+  <div class="out" id="out" hidden>
+    <b>Copy this into the chat:</b>
+    <pre id="answer"></pre>
+    <div class="btn-row"><button class="btn ghost" id="copyout">Copy to clipboard</button></div>
+  </div>
+</section>
+
+<footer>
+  Source of truth: <code>docs/case/round-2-ledger.md</code> in the repo — this page mirrors its pre-flight section, plus the bypass correction. Nothing in the ledger is frozen until you confirm these.
+</footer>
+</div>
+
+<script>
+(function () {
+  var KEY = "sdlc-r2-preflight";
+  var state = {};
+  try { state = JSON.parse(localStorage.getItem(KEY) || "{}"); } catch (e) { state = {}; }
+
+  function save() { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} }
+
+  var boxes = Array.prototype.slice.call(document.querySelectorAll('.task input[type="checkbox"]'));
+  var radios = Array.prototype.slice.call(document.querySelectorAll('.opt input[type="radio"]'));
+  var texts = Array.prototype.slice.call(document.querySelectorAll('input[type="text"], input[type="date"]'));
+
+  function paintOpt(r) {
+    var group = document.querySelectorAll('input[name="' + r.name + '"]');
+    Array.prototype.forEach.call(group, function (g) { g.closest(".opt").classList.toggle("sel", g.checked); });
+  }
+
+  function progress() {
+    var doneTasks = boxes.filter(function (b) { return b.checked; }).length;
+    var decided = ["bypass", "budget", "token"].filter(function (n) {
+      return document.querySelector('input[name="' + n + '"]:checked');
+    }).length;
+    var dates = (document.getElementById("d1").value && document.getElementById("d2").value) ? 1 : 0;
+    var total = boxes.length + 4;
+    var done = doneTasks + decided + dates;
+    document.getElementById("pct").textContent = done + " of " + total + " done";
+    document.getElementById("barfill").style.width = Math.round((done / total) * 100) + "%";
+  }
+
+  boxes.forEach(function (b) {
+    if (state[b.id]) { b.checked = true; }
+    b.closest(".task").classList.toggle("done", b.checked);
+    b.addEventListener("change", function () {
+      state[b.id] = b.checked; save();
+      b.closest(".task").classList.toggle("done", b.checked);
+      progress();
+    });
+  });
+  radios.forEach(function (r) {
+    if (state["r-" + r.name] === r.value) { r.checked = true; }
+    paintOpt(r);
+    r.addEventListener("change", function () {
+      state["r-" + r.name] = r.value; save(); paintOpt(r); progress();
+    });
+  });
+  texts.forEach(function (t) {
+    if (state["t-" + t.id]) { t.value = state["t-" + t.id]; }
+    t.addEventListener("input", function () { state["t-" + t.id] = t.value; save(); progress(); });
+  });
+  progress();
+
+  document.querySelectorAll(".copy").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var txt = btn.parentElement.querySelector("pre").textContent;
+      navigator.clipboard.writeText(txt).then(function () {
+        btn.textContent = "copied"; setTimeout(function () { btn.textContent = "copy"; }, 1400);
+      });
+    });
+  });
+
+  function val(id) { var v = document.getElementById(id).value.trim(); return v || "TBD"; }
+  function radio(name) {
+    var r = document.querySelector('input[name="' + name + '"]:checked');
+    return r ? r.value : "TBD";
+  }
+
+  document.getElementById("build").addEventListener("click", function () {
+    var budget = radio("budget");
+    if (budget === "custom") { budget = val("bcustom"); }
+    var lines = [
+      "Round 2 pre-flight — my answers",
+      "",
+      "DECISIONS",
+      "- Break-glass: " + radio("bypass"),
+      "- Window: " + val("d1") + " to " + val("d2"),
+      "- Spend ceiling: " + budget,
+      "- Token contention: " + radio("token"),
+      "",
+      "SEATS",
+      "- PM: " + val("s-pm"),
+      "- Dev manager: " + val("s-dm"),
+      "- Dev A: " + val("s-a"),
+      "- Dev B: " + val("s-b"),
+      "- Infra: " + val("s-i"),
+      "- QA: me",
+      "",
+      "DONE IN GITHUB"
+    ];
+    boxes.forEach(function (b) {
+      var title = b.parentElement.querySelector(".t-title").textContent.replace(/\s+/g, " ").trim();
+      lines.push((b.checked ? "- [x] " : "- [ ] ") + title);
+    });
+    document.getElementById("answer").textContent = lines.join("\n");
+    document.getElementById("out").hidden = false;
+    document.getElementById("out").scrollIntoView({ behavior: "smooth", block: "nearest" });
+  });
+
+  document.getElementById("copyout").addEventListener("click", function () {
+    var btn = document.getElementById("copyout");
+    navigator.clipboard.writeText(document.getElementById("answer").textContent).then(function () {
+      btn.textContent = "Copied"; setTimeout(function () { btn.textContent = "Copy to clipboard"; }, 1500);
+    });
+  });
+
+  document.getElementById("reset").addEventListener("click", function () {
+    state = {}; save();
+    boxes.forEach(function (b) { b.checked = false; b.closest(".task").classList.remove("done"); });
+    radios.forEach(function (r) { r.checked = false; paintOpt(r); });
+    texts.forEach(function (t) { t.value = ""; });
+    document.getElementById("out").hidden = true;
+    progress();
+  });
+})();
+</script>
