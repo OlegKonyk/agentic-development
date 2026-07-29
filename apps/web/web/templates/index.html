@@ -18,11 +18,23 @@
      {% if option.active %}aria-current="page"{% endif %}>{{ option.label }}</a>
   {% endfor %}
 </nav>
+<form class="search" method="get" action="/" data-testid="search-form">
+  {% if active_status %}<input type="hidden" name="status" value="{{ active_status }}">{% endif %}
+  <label for="q">Search tasks</label>
+  <input id="q" name="q" type="search" maxlength="1000"
+         data-testid="search-input" value="{{ search }}">
+  <button type="submit" class="btn-primary" data-testid="search-submit">Search</button>
+  {% if search %}
+  <a href="{{ board_url(active_status, 1, '') }}" data-testid="search-clear">Clear search</a>
+  {% endif %}
+</form>
 {% if empty_state == "board" %}
 <p class="empty-state" data-testid="empty-board">
   No tasks yet.
   <a href="/new" data-testid="empty-board-new-link">Add your first task</a>
 </p>
+{% elif empty_state == "search" %}
+<p class="empty-state" data-testid="empty-search">No tasks match your search.</p>
 {% endif %}
 <div class="board" data-testid="task-list">
   {% for status in statuses %}
@@ -46,11 +58,12 @@
       {% endif %}
       <div class="actions">
         <a class="btn-edit" data-testid="edit-link"
-           href="{{ edit_url(task.id, active_status, page) }}"
+           href="{{ edit_url(task.id, active_status, page, search) }}"
            aria-label="Edit {{ task.title }}">Edit</a>
         <form method="post" action="/tasks/{{ task.id }}/move-back">
           <input type="hidden" name="csrf_token" value="{{ csrf }}">
           <input type="hidden" name="status" value="{{ active_status or '' }}">
+          <input type="hidden" name="q" value="{{ search }}">
           <input type="hidden" name="page" value="{{ page }}">
           <button type="submit" class="btn-back" data-testid="move-back-btn"
                   aria-label="Move back {{ task.title }}">Move back</button>
@@ -58,6 +71,7 @@
         <form method="post" action="/tasks/{{ task.id }}/advance">
           <input type="hidden" name="csrf_token" value="{{ csrf }}">
           <input type="hidden" name="status" value="{{ active_status or '' }}">
+          <input type="hidden" name="q" value="{{ search }}">
           <input type="hidden" name="page" value="{{ page }}">
           <button type="submit" class="btn-advance" data-testid="advance-btn"
                   aria-label="Advance {{ task.title }}">Advance</button>
@@ -65,6 +79,7 @@
         <form method="post" action="/tasks/{{ task.id }}/delete">
           <input type="hidden" name="csrf_token" value="{{ csrf }}">
           <input type="hidden" name="status" value="{{ active_status or '' }}">
+          <input type="hidden" name="q" value="{{ search }}">
           <input type="hidden" name="page" value="{{ page }}">
           <button type="submit" class="btn-delete" data-testid="delete-btn"
                   aria-label="Delete {{ task.title }}">Delete</button>

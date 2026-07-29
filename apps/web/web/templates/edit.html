@@ -5,6 +5,7 @@
 <form class="stacked" method="post" action="/tasks/{{ task_id }}/edit">
   <input type="hidden" name="csrf_token" value="{{ csrf }}">
   <input type="hidden" name="status" value="{{ status }}">
+  <input type="hidden" name="q" value="{{ search | default('') }}">
   <input type="hidden" name="page" value="{{ page }}">
   <label for="title">Title</label>
   <input id="title" name="title" required maxlength="200"
